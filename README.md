@@ -3,10 +3,11 @@
 Bring-up of [Luma Mobile](https://github.com/SimplyLuma/luma) — a Fedora-based
 Linux system — on the Microsoft Surface Duo 2 (`surfaceduo2`, Qualcomm SM8350).
 
-**Status: bring-up tooling.** Luma Mobile does not run on the phone yet and is
-being built for it from scratch. What works today is the debug loop: the phone
-boots a test image, streams its kernel log over USB to `/dev/ttyACM0`, and is
-sent back to fastboot from the workstation with no hands on the phone.
+**Status: Luma's base system boots.** Microsoft's 5.4 kernel, postmarketOS's
+initramfs and a Fedora 44 rootfs built from Luma's own mobile package lists
+boot to a root shell over USB (`/dev/ttyACM0`), from `userdata`, in Luma's
+Fairphone 6 layout. Luma's own packages and UI are not on it yet. Every stage
+returns to fastboot without a person.
 
 ## What this is
 
@@ -27,12 +28,14 @@ currently supports.
 | Device talks over fastboot | yes, unlocked, slot `b` |
 | Boot image format understood | yes — Android boot v3 + vendor_boot v3 |
 | Microsoft's 5.4 kernel builds and boots | yes, with our bring-up patches |
+| postmarketOS initramfs mounts Luma's root | **yes** |
+| Fedora 44 base with systemd boots to a shell | **yes** — over ttyACM0 |
+| Luma's own packages and UI | not yet |
 | USB console reaches the workstation | **yes** — `/dev/ttyACM0`, verified |
 | Returns to fastboot without a person | **yes** — on command, timeout or panic |
 | Mainline device tree exists | yes, minimal: storage, USB, UART, regulators |
-| Mainline kernel boots | no |
+| Mainline kernel boots | no — parked; the ABL refuses it before handoff |
 | Display / GPU / touch / camera in mainline | **no** |
-| Luma Mobile | not started on the device |
 
 See [docs/hardware.md](docs/hardware.md) for everything the hardware actually
 reports, and [docs/usb-logging.md](docs/usb-logging.md) for the debug workflow.
@@ -45,7 +48,8 @@ socs/qcom/sm8350/                 shared SM8350 family configuration
 kernel/config/                    defconfig fragments
 kernel/patches/                   patches against mainline
 kernel/patches/msm-5.4/           bring-up patches for Microsoft's 5.4 kernel
-kernel/initramfs/                 bring-up init: USB console, status screen, way home
+kernel/initramfs/                 bring-up init, duo2-home (the way home)
+config/mobile/                    postmarketOS deviceinfo for the Duo 2
 scripts/                          bring-up tooling
 docs/                             findings and workflow
 ```

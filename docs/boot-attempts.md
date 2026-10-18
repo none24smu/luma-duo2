@@ -218,3 +218,45 @@ What is not: whether 26 failed on the dtbo or on the mainline DTB/kernel.
 Mainline was parked here in favour of Microsoft's kernel for now; the next
 mainline step is 26's dtbo under Microsoft's kernel, which separates the two.
 `duo2-mkdtbo.sh` builds that dtbo.
+
+
+## Luma's base system boots (2026-10-18)
+
+Microsoft's 5.4 kernel with patches 0001-0005, postmarketOS's initramfs
+(3.12.5) plus the Duo 2 overlay, and a Fedora 44 rootfs built from Luma's
+mobile package lists, in `userdata` as `pmOS_boot` + `pmOS_root` -- the same
+layout as Luma's Fairphone 6.
+
+| # | Change | Result |
+|---|---|---|
+| L1 | first Luma image | initramfs finds and grows `pmOS_root`, then `unable to read superblock`; debug shell; **duo2-home returns it to fastboot at 120 s, unattended** |
+| L2 | 4 KiB sectors in deviceinfo and the image | root mounts, `switch_root`, **systemd 259 starts** -- but every service fails `Failed to close unwanted file descriptors: Invalid argument` |
+| L3 | patch 0005 (syscall 436) | **boots to a root shell on ttyACM0.** Fedora 44, `/run/luma-duo2-booted` present, root grown to 218 GB, one failed unit (`serial-getty@hvc0`); `duo2-bootloader.sh` returns it to fastboot |
+
+### L1: UFS has 4 KiB logical blocks
+
+postmarketOS attaches the subpartitions inside `userdata` with
+`losetup --direct-io=on`, 512-byte sectors by default. Direct I/O on 4 KiB
+UFS cannot serve 512-byte-aligned reads: the kernel's superblock read at
+sector 526338 fails, while `e2fsck` and `resize2fs`, which read 4 KiB at a
+time, succeed. `deviceinfo_rootfs_image_sector_size="4096"`, a partition
+table written in 4096-byte sectors and 4 KiB ext4 blocks fix it.
+
+### L2: Android's syscall 436 is not close_range
+
+Android backported `process_madvise` at syscall 436 before upstream settled
+the numbering; upstream gave 436 to `close_range()` and put `process_madvise`
+at 440. systemd 259 calls `close_range()` before every exec and falls back
+gracefully on `ENOSYS` -- but here it reached `process_madvise()` and got
+`EINVAL`, which it rightly treats as fatal. Patch 0005 moves
+`process_madvise` to 440 and leaves 436-439 unassigned. Any modern
+userspace on an Android 5.4 kernel with this backport will hit the same thing.
+
+### The way home now covers every stage
+
+| Stage | Mechanism |
+|---|---|
+| kernel panic / watchdog | patch 0002, `panic_reason=bootloader` |
+| initramfs failure | duo2-home phase 1: PID 1 still in the initramfs at 120 s |
+| booted system that never reaches multi-user | duo2-home phase 2: no `/run/luma-duo2-booted` at 300 s |
+| any stage with a console | `bootloader` command over ttyACM0 (`duo2-bootloader.sh`) |
