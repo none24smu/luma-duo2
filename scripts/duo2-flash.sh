@@ -8,8 +8,11 @@
 # instead: boot_b for the kernel and ramdisk, vendor_boot_b for the DTB and
 # command line, and dtbo_b chosen to match the kernel:
 #
-#   (default)      blank: Microsoft's overlays target nodes that the mainline
-#                  device tree does not have.
+#   (default)      empty overlays (duo2-mkdtbo.sh): the stock table's entries
+#                  and identifiers with no fragments, for the mainline tree,
+#                  whose nodes Microsoft's overlays do not match. A zeroed
+#                  dtbo is not an option on this phone: the ABL refuses it
+#                  and returns to fastboot without starting any kernel.
 #   --stock-dtbo   Microsoft's own dtbo_b, for Microsoft's kernel. The base
 #                  DTB in vendor_boot is only the SoC; the PMIC power-on and
 #                  reboot-reason nodes, the board regulators and the Duo's
@@ -45,16 +48,12 @@ done
 
 BOOT="$OUT/boot.img"
 VENDOR_BOOT="$OUT/vendor_boot.img"
-DTBO_BLANK="$OUT/dtbo-blank.img"
+DTBO_EMPTY="$OUT/dtbo-empty.img"
 
 [ -f "$BOOT" ] || die "no $BOOT -- run duo2-mkboot.sh"
 [ -f "$VENDOR_BOOT" ] || die "no $VENDOR_BOOT -- run duo2-mkboot.sh"
 
-# dtbo blanked to the real partition size, as boot.toml's dtbo.policy says.
-if [ "$STOCK_DTBO" -eq 0 ] && [ ! -f "$DTBO_BLANK" ]; then
-    info "creating blank dtbo (25165824 bytes)"
-    head -c 25165824 /dev/zero > "$DTBO_BLANK"
-fi
+[ "$STOCK_DTBO" -eq 1 ] || [ -f "$DTBO_EMPTY" ] || die "no $DTBO_EMPTY -- run duo2-mkdtbo.sh"
 
 info "boot_$SLOT        <- $(basename "$BOOT") ($(stat -c%s "$BOOT") bytes)"
 duo2_fastboot flash "boot_$SLOT" "$BOOT"
@@ -67,8 +66,8 @@ if [ "$STOCK_DTBO" -eq 1 ]; then
     info "dtbo_$SLOT        <- stock dtbo_$SLOT.img"
     duo2_fastboot flash "dtbo_$SLOT" "$STOCK/dtbo_$SLOT.img"
 else
-    info "dtbo_$SLOT        <- blank"
-    duo2_fastboot flash "dtbo_$SLOT" "$DTBO_BLANK"
+    info "dtbo_$SLOT        <- empty overlays"
+    duo2_fastboot flash "dtbo_$SLOT" "$DTBO_EMPTY"
 fi
 
 info "flashed. Start the collector, then reboot:"
