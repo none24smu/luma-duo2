@@ -27,15 +27,33 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
 
 OUT="${LUMA_DUO2_OUT:-$LUMA_DUO2_ROOT/build}"
-STOCK_DTB="${1:-$OUT/stock-dtb/blob0.dtb}"
+STOCK="${LUMA_DUO2_STOCK:-$LUMA_DUO2_ROOT/../SD2Firmware}"
+UNPACK="${LUMA_DUO2_UNPACK:-$LUMA_DUO2_ROOT/../tools/mkbootimg/unpack_bootimg.py}"
+WORK="$OUT/dtb-usb"
 
-[ -f "$STOCK_DTB" ] || die "no stock DTB at $STOCK_DTB"
-mkdir -p "$OUT"
+# The stock vendor_boot DTB section is three DTBs back to back, one per
+# Lahaina silicon revision (v1, v2, v2.1); the bootloader picks the one whose
+# qcom,msm-id matches the chip. Patching only one of them would leave the
+# others stock, and the phone would silently boot whichever its chip matches.
+# So every DTB in the section is patched and the section rebuilt.
+rm -rf "$WORK"; mkdir -p "$WORK/vb"
+python3 "$UNPACK" --boot_img "$STOCK/vendor_boot_b.img" --out "$WORK/vb" >/dev/null
+python3 - "$WORK/vb/dtb" "$WORK" <<'PY'
+import sys
+d = open(sys.argv[1], "rb").read(); i = n = 0
+while (i := d.find(b"\xd0\x0d\xfe\xed", i)) >= 0:
+    size = int.from_bytes(d[i+4:i+8], "big")
+    open(f"{sys.argv[2]}/stock-{n}.dtb", "wb").write(d[i:i+size]); n += 1; i += size
+print(f"    stock DTB section: {n} DTBs")
+PY
 
-info "decompiling $(basename "$STOCK_DTB")"
-dtc -I dtb -O dts -o "$OUT/stock-usb.dts" "$STOCK_DTB" 2>/dev/null
+: > "$OUT/duo2-usb.dtb"
+for STOCK_DTB in "$WORK"/stock-*.dtb; do
+DTS="${STOCK_DTB%.dtb}.dts"
+info "patching $(basename "$STOCK_DTB")"
+dtc -I dtb -O dts -o "$DTS" "$STOCK_DTB" 2>/dev/null
 
-python3 - "$OUT/stock-usb.dts" <<'PY'
+python3 - "$DTS" <<'PY'
 import re, sys, pathlib
 p = pathlib.Path(sys.argv[1]); s = p.read_text()
 
@@ -71,7 +89,8 @@ if n_mode == 0:
     sys.exit("error: dr_mode was not patched; the tree is not shaped as expected")
 PY
 
-dtc -I dts -O dtb -o "$OUT/duo2-usb.dtb" "$OUT/stock-usb.dts" 2>/dev/null
+dtc -I dts -O dtb -o "${DTS%.dts}-usb.dtb" "$DTS" 2>/dev/null
+cat "${DTS%.dts}-usb.dtb" >> "$OUT/duo2-usb.dtb"
+done
+
 printf '    %s  %s bytes\n' "$OUT/duo2-usb.dtb" "$(stat -c%s "$OUT/duo2-usb.dtb")"
-dtc -I dtb -O dts "$OUT/duo2-usb.dtb" 2>/dev/null \
-    | sed -n '/ssusb@a600000/,/^\t\t};/p' | grep -E 'dr_mode|extcon|maximum-speed' | sed 's/^/    /'
