@@ -40,6 +40,7 @@ devices/microsoft/surface-duo2/   device manifests, in Luma's schema
 socs/qcom/sm8350/                 shared SM8350 family configuration
 kernel/config/                    defconfig fragments
 kernel/patches/                   patches against mainline
+kernel/patches/msm-5.4/           bring-up patches for Microsoft's 5.4 kernel
 scripts/                          bring-up tooling
 docs/                             findings and workflow
 ```

@@ -1,0 +1,29 @@
+diff --git a/drivers/power/reset/qcom-reboot-reason.c b/drivers/power/reset/qcom-reboot-reason.c
+index 63ba09f9b953..79144bce2179 100644
+--- a/drivers/power/reset/qcom-reboot-reason.c
++++ b/drivers/power/reset/qcom-reboot-reason.c
+@@ -43,6 +43,15 @@ static struct poweroff_reason reasons[] = {
+ 	{}
+ };
+ 
++/*
++ * Reason written when the kernel panics. Defaults to Microsoft's own
++ * "kernel-panic"; bring-up passes qcom_reboot_reason.panic_reason=bootloader
++ * so a panic, or a watchdog bark that becomes one, lands in fastboot instead
++ * of re-booting the same broken kernel.
++ */
++static char *panic_reason = "kernel-panic";
++module_param(panic_reason, charp, 0644);
++
+ static int qcom_reboot_reason_reboot(struct notifier_block *this,
+ 				     unsigned long event, void *ptr)
+ {
+@@ -73,7 +82,7 @@ static int qcom_reboot_reason_panic(struct notifier_block *this,
+         struct poweroff_reason *reason;
+ 
+         for (reason = reasons; reason->cmd; reason++) {
+-                if (!strcmp("kernel-panic", reason->cmd)) {
++                if (!strcmp(panic_reason, reason->cmd)) {
+                         nvmem_cell_write(reboot->nvmem_cell,
+                                          &reason->pon_reason,
+                                          sizeof(reason->pon_reason));
