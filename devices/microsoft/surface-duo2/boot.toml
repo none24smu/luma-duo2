@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: Apache-2.0
+# Boot policy for the Microsoft Surface Duo 2.
+#
+# Format, page size and load offsets come from socs/qcom/sm8350/soc.toml.
+# Unlike the Fairphone 6, this phone uses Android boot header v3: the boot
+# image holds only a kernel and a ramdisk, and the DTB plus the real command
+# line live in vendor_boot. Shipping a Luma device tree therefore means
+# building a vendor_boot image too, not just a boot image.
+schema = 1
+partition = "boot"
+# 0x8000000, read with `fastboot getvar partition-size:boot_b`.
+partition_size = 134217728
+format = "android-boot-v3"
+page_size = 4096
+
+[cmdline]
+# Bring-up command line. The phone has no debug-UART cable attached, so the
+# only console available is the CDC-ACM gadget the kernel raises on the dwc3
+# controller at a600000 (usb_1 in mainline, and the same controller the stock
+# Android cmdline names in androidboot.usbcontroller). Everything before dwc3
+# probes is invisible, which is why pstore/ramoops matters here.
+args = [
+  "console=ttyGS0,115200n8",
+  "earlycon",
+  "rootwait",
+  "ro",
+]
+# Filled in per image and per deployment by the image builder and libostree.
+generated = ["pmos_root_uuid", "pmos_boot_uuid", "ostree"]
+# These may never appear in a release image. SELinux may run permissive while
+# the device is `experimental`, but it is never switched off at the kernel.
+forbidden = ["selinux=0", "enforcing=0", "lsm="]
+
+[avb]
+# An unsigned AVB hash footer: an integrity envelope for an unlocked
+# bootloader, not verified boot. vbmeta stays exactly as Microsoft ships it;
+# this port never touches it.
+footer = "hash"
+algorithm = "NONE"
+hash_algorithm = "sha256"
+rollback_index = 0
+vbmeta = "untouched"
+
+[dtbo]
+# Luma ships a complete DTB, so Microsoft's Android overlays must not apply on
+# top of it. Only the slot the phone is already on is ever written: this port
+# does not touch the other slot, so Android stays intact there.
+# 0x1800000, read with `fastboot getvar partition-size:dtbo_b`.
+policy = "blank"
+size = 25165824
+partitions = ["dtbo_b"]

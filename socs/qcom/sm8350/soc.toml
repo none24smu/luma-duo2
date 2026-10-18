@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Shared configuration for every device on the Qualcomm SM8350 (lahaina) family.
+# A device on this SoC sets `soc = "qcom/sm8350"` and only declares what differs.
+#
+# The family is named sm8350 after the upstream kernel's name for the chip, as
+# devices.md requires. Qualcomm's own name for it is "lahaina"; that name shows
+# up throughout the vendor 5.4 tree and in the downstream defconfigs, but never
+# in mainline, so it is not the family name here.
+schema = 1
+vendor = "qcom"
+family = "sm8350"
+name = "Qualcomm SM8350 (lahaina)"
+arch = "aarch64"
+part_numbers = ["SM8350"]
+
+[kernel]
+repository = "https://github.com/SimplyLuma/linux"
+branch = "sm8350"
+upstream = "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git"
+dts_directory = "arch/arm64/boot/dts/qcom"
+
+[boot]
+# Read off a stock Surface Duo 2 image, not assumed: boot_b carries an
+# ANDROID! header with header_version 3 and an empty cmdline, and the whole
+# command line plus a 1.38 MiB DTB live in vendor_boot (VNDRBOOT, v3).
+# Boot v3 has no DTB section of its own, hence dtb_in_boot_image = false.
+format = "android-boot-v3"
+page_size = 4096
+slots = "ab"
+dtb_in_boot_image = false
+
+[boot.offsets]
+# From the stock vendor_boot_b header. These match the milos family exactly,
+# which is a Qualcomm convention rather than a coincidence.
+base = 0x00000000
+kernel = 0x00008000
+ramdisk = 0x01000000
+second = 0x00000000
+tags = 0x00000100
+dtb = 0x01f00000
+
+[firmware]
+directory = "qcom/sm8350"

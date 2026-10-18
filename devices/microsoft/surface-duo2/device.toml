@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Microsoft Surface Duo 2 — bring-up, not a supported device.
+#
+# Tier is `experimental` and will stay there until the phone boots Luma with
+# both displays lit. Mainline has only a minimal device tree for this phone
+# (storage, USB, UART, regulators, remoteprocs); there is no display, GPU,
+# touch, camera or modem support in it yet. Treat every field below as
+# provisional except the ones marked as read from the hardware.
+schema = 1
+vendor = "microsoft"
+codename = "surface-duo2"
+name = "Microsoft Surface Duo 2"
+marketing_name = "Surface Duo 2"
+form_factor = "phone"
+year = 2021
+soc = "qcom/sm8350"
+tier = "experimental"
+maintainers = ["@REPLACE-WITH-GITHUB-HANDLE"]
+
+# Read from the device over fastboot.
+fastboot_product = "surfaceduo2"
+
+[kernel]
+# No Luma kernel tag exists yet. The port starts from mainline, which already
+# carries arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dts, added as
+# "minimal DTS for Microsoft Surface Duo 2" and extended since with the battery
+# charger and a USB dual-role fix.
+branch = "sm8350"
+dtb = "qcom/sm8350-microsoft-surface-duo2.dtb"
+
+[boot]
+config = "boot.toml"
+
+[initramfs]
+# Follows the Fairphone 6 pattern: postmarketOS initramfs with a Luma overlay
+# that sets up the firmware store and the OSTree root. Nothing is built yet, so
+# no ramdisk hash is recorded; an invented one would be worse than none.
+base = "postmarketos-initramfs"
+
+[firmware]
+# The Duo 2's firmware comes out of Microsoft's own factory package. No file
+# list has been produced yet, so this manifest is a stub; firmware itself never
+# enters git under any circumstances.
+manifest = "firmware.manifest"
+store = "/var/lib/luma/device-firmware"
+
+[install]
+guide = "INSTALL.md"
+method = "fastboot"
+# Partitions the install must never erase or write. modemst1/modemst2 hold the
+# phone's own radio identity, including its IMEI; fsg/fsc and persist hold
+# calibration this port cannot regenerate.
+preserve = ["modemst1", "modemst2", "fsg", "fsc", "persist"]
