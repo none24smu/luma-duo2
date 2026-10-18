@@ -19,10 +19,13 @@
 # not a faithful description of the stock image and nothing built from them
 # should be trusted, so the script stops.
 #
-# Usage: duo2-mkboot.sh [--vendor]
-#   default   mainline kernel + mainline DTB
-#   --vendor  Microsoft's msm-5.4 kernel (duo2-build-vendor.sh) + the stock
-#             DTBs patched for a USB console (duo2-mkdtb-usb.sh)
+# Usage: duo2-mkboot.sh [--vendor [--stock-kernel]]
+#   default         mainline kernel + mainline DTB
+#   --vendor        Microsoft's msm-5.4 kernel (duo2-build-vendor.sh) + the
+#                   stock DTBs patched for a USB console (duo2-mkdtb-usb.sh)
+#   --stock-kernel  as --vendor, but keep the kernel binary from stock boot_b.
+#                   Same source and compiler as our build, so it separates
+#                   "our kernel build is wrong" from "everything around it is".
 
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
@@ -41,8 +44,9 @@ VENDOR_BOOT_PART_SIZE=100663296
 STOCK_BOOT="$STOCK/boot_b.img"
 STOCK_VENDOR_BOOT="$STOCK/vendor_boot_b.img"
 
-VENDOR=0
+VENDOR=0 STOCK_KERNEL=0
 [ "${1:-}" = "--vendor" ] && VENDOR=1
+[ "$VENDOR" -eq 1 ] && [ "${2:-}" = "--stock-kernel" ] && STOCK_KERNEL=1
 
 RAMDISK="$OUT/initramfs.cpio.gz"
 if [ "$VENDOR" -eq 1 ]; then
@@ -125,8 +129,10 @@ them cannot be trusted"
 }
 
 # --- boot: swap the kernel and the ramdisk --------------------------------
-repack boot "$STOCK_BOOT" --output "$OUT/boot.img" \
-    "$KERNEL:kernel" "$RAMDISK:ramdisk"
+BOOT_SWAPS=("$RAMDISK:ramdisk")
+[ "$STOCK_KERNEL" -eq 1 ] || BOOT_SWAPS+=("$KERNEL:kernel")
+[ "$STOCK_KERNEL" -eq 1 ] && info "boot: keeping the stock kernel"
+repack boot "$STOCK_BOOT" --output "$OUT/boot.img" "${BOOT_SWAPS[@]}"
 
 # --- vendor_boot: swap the DTB, and add our console to the command line ---
 # The stock command line is kept verbatim and ttyGS0 appended, rather than
