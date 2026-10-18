@@ -1,0 +1,13 @@
+# Overrides to Luma's config/mobile/ui-packages.txt for the Duo 2 compose.
+#
+# Luma's public tree pins Fedora's Phosh and Phoc at 0.56.0, but the Luma
+# packages built from that same tree are on 0.55: luma-phosh 0.55.0 installs
+# under /opt/luma/phosh beside Fedora's stock Phosh and requires it at exactly
+# "phosh = 0.55.0", and Luma builds its own phoc 0.55.1, which replaces
+# Fedora's. The two pins cannot be installed together with those packages.
+#
+# Format: PIN REPLACEMENT   ("-" drops the pin; the replacement is fetched
+# from the repos or Koji like any other pin)
+
+phosh-0.56.0-2.fc44   phosh-0.55.0-1.fc44
+phoc-0.56.0-2.fc44    -

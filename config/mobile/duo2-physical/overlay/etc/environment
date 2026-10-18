@@ -1,0 +1,4 @@
+# Surface Duo 2 bring-up: no GPU acceleration yet (Adreno 660 needs KGSL
+# support in Mesa plus its firmware), so Phoc composites with wlroots'
+# software renderer. Remove once hardware rendering works.
+WLR_RENDERER=pixman

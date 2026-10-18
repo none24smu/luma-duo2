@@ -1,0 +1,20 @@
+# Surface Duo 2: Luma's handheld greetd flow, as on the Fairphone 6
+# (luma config/mobile/fp6-physical/overlay/etc/greetd/config.toml).
+[terminal]
+vt = 7
+switch = true
+
+[general]
+source_profile = false
+persistent_compositor = true
+
+# Boot straight into the authenticated user's native Phosh session, which
+# starts locked; the user session owns its one Phoc compositor from the start.
+[initial_session]
+command = "/usr/local/bin/luma-phosh-session"
+user = "luma"
+
+# Presence is the recovery greeter only, for when the initial session exits.
+[default_session]
+command = "/usr/libexec/luma-presence-compositor"
+user = "greetd"
