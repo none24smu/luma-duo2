@@ -1,0 +1,17 @@
+--- a/arch/arm64/configs/vendor/lahaina_QGKI.config
++++ b/arch/arm64/configs/vendor/lahaina_QGKI.config
+@@ -308,3 +308,14 @@
+ # MSCHANGE -> enable usermode helper on path /system/bin
+ CONFIG_STATIC_USERMODEHELPER_PATH="/system/bin/core_collector"
+ #End MSCHANGE
++
++# Luma Duo 2 bring-up: USB CDC-ACM kernel console.
++# The phone has no debug UART cable, so the only console is a USB gadget. The
++# stock config has USB_CONFIGFS_ACM, but a configfs gadget has to be assembled
++# by userspace, which is exactly what bring-up is trying to debug. The legacy
++# g_serial gadget binds the first UDC by itself with no userspace at all, and
++# U_SERIAL_CONSOLE is what makes console=ttyGS0 a real console rather than
++# just a tty, replaying the printk ring buffer once the gadget binds.
++CONFIG_USB_G_SERIAL=y
++CONFIG_U_SERIAL=y
++CONFIG_U_SERIAL_CONSOLE=y
