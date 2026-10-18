@@ -113,3 +113,26 @@ timeout or watchdog rather than a parse failure. With no console and no
 display driver there is still no way to distinguish "the ABL never handed
 off" from "the kernel started and died", and that ambiguity has been the
 limiting factor throughout.
+
+
+## Do not probe unknown `oem` commands on this bootloader
+
+`fastboot oem help` returns `unknown command`, but most other unknown `oem`
+subcommands do not return anything at all: the ABL stops responding. Probing a
+list of plausible names (`oem log`, `oem dmesg`, `oem uart-on` and so on) left
+the bootloader wedged -- it still enumerated over USB and still appeared in
+`fastboot devices`, but every command including `getvar product` and
+`reboot-bootloader` timed out. Recovery was a 20-second Power hold.
+
+Only two `oem` commands are known to work here:
+
+| Command | Result |
+|---|---|
+| `oem help` | `FAILED (remote: 'unknown command')` |
+| `oem device-info` | `Verity mode: true` / `Device unlocked: true` |
+
+**`Verity mode: true` is the important one.** AVB verification is still
+enabled on this phone despite the bootloader being unlocked, and flashing
+`vbmeta_b` with only `--disable-verification` did not clear it. The next step
+is `--disable-verity --disable-verification` together, confirmed by
+`oem device-info` reporting the mode as false, rather than assumed.

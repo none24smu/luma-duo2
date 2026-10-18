@@ -78,3 +78,19 @@ That is a different phone. Check DUO2_SERIAL in $DUO2_LOCAL_CONFIG."
 duo2_current_slot() {
     duo2_fastboot getvar current-slot 2>&1 | head -1 | sed 's/^current-slot: *//'
 }
+
+# Probing unknown `oem` subcommands wedges this bootloader: it keeps
+# enumerating over USB but stops answering every command, including getvar and
+# reboot-bootloader, and only a 20-second Power hold recovers it. Only the two
+# below are known to be safe.
+DUO2_SAFE_OEM="help device-info"
+
+duo2_oem() {
+    local sub="${1:-}"
+    case " $DUO2_SAFE_OEM " in
+        *" $sub "*) ;;
+        *) die "refusing 'oem $sub': unknown oem subcommands hang this ABL and
+need a 20-second Power hold to recover. Known safe: $DUO2_SAFE_OEM" ;;
+    esac
+    duo2_fastboot oem "$sub"
+}
