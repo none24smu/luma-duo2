@@ -77,3 +77,39 @@ UART there is no way to tell from the host whether the kernel is running and
 hanging early, or never starts. The next useful evidence is not another
 variation of the image: it is either an account of what the phone's screens do
 during those 10 seconds, or a debug-UART cable.
+
+
+## Flashed attempts (after boot_b became ours)
+
+Once `boot_b` was overwritten, a rejected image falls back to *fastboot*
+rather than into the installed OS, so iteration became safe. Every attempt
+below flashed `boot_b` + `vendor_boot_b` + a blank `dtbo_b` and rebooted.
+
+| # | Kernel in boot.img | DTB in vendor_boot | vbmeta | Result |
+|---|---|---|---|---|
+| 7 | `Image.gz` | mainline, no `qcom,msm-id` | untouched | rejected, fastboot after ~16 s |
+| 8 | `Image.gz` | + `qcom,msm-id`/`board-id` | untouched | rejected, ~16 s |
+| 9 | `Image.gz` | + `qcom,msm-id`/`board-id` | `--disable-verification` | rejected, ~15 s |
+| 10 | **raw `Image`** | + `qcom,msm-id`/`board-id` | `--disable-verification` | rejected, ~15 s |
+
+### The kernel format was wrong in every earlier attempt
+
+The stock `boot_b` kernel is an **uncompressed** arm64 `Image`: it begins
+`4d5a` (`MZ`) with the ARM64 `ARMd` magic at offset 0x38, and `file` calls it
+"Linux kernel ARM64 boot executable Image, little-endian, 4K pages". Attempts
+1 through 9 all shipped `Image.gz` (`1f8b`). arm64 has no self-decompressing
+kernel, so compression is entirely the bootloader's business and this one
+wants none.
+
+Fixing it did not make the phone boot, so it was not the only problem — but
+it was definitely *a* problem, and every result gathered before attempt 10 was
+taken with a kernel the bootloader could not have executed.
+
+### Where this stands
+
+The failure is now a consistent ~15 seconds followed by a fall back to
+fastboot. That timing is the same whatever is changed, which suggests a
+timeout or watchdog rather than a parse failure. With no console and no
+display driver there is still no way to distinguish "the ABL never handed
+off" from "the kernel started and died", and that ambiguity has been the
+limiting factor throughout.

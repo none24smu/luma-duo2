@@ -26,8 +26,22 @@ while getopts ":k:o:h" opt; do
     esac
 done
 
-KERNEL="$KBUILD/arch/arm64/boot/Image.gz"
-DTB="$KBUILD/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dtb"
+# A RAW arm64 Image, not Image.gz. The stock Duo 2 boot image contains an
+# uncompressed kernel -- "MZ" with the ARM64 "ARMd" magic at offset 0x38, which
+# `file` reports as "Linux kernel ARM64 boot executable Image" -- and the ABL
+# does not accept a gzip stream here. Every failed attempt before this one
+# shipped Image.gz. arm64 has no self-decompressing kernel, so compression is
+# purely the bootloader's business, and this one wants none.
+KERNEL="$KBUILD/arch/arm64/boot/Image"
+# The bootloader needs a tree carrying qcom,msm-id; duo2-mkdtb.sh adds it.
+# Falls back to the raw mainline DTB only if that has not been run, which the
+# ABL will not accept -- so it is a loud fallback, not a silent one.
+DTB="$OUT/duo2-qcom.dtb"
+if [ ! -f "$DTB" ]; then
+    warn "no $DTB -- run duo2-mkdtb.sh; falling back to the raw mainline DTB,"
+    warn "which has no qcom,msm-id and the bootloader will not select it"
+    DTB="$KBUILD/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dtb"
+fi
 
 [ -f "$KERNEL" ] || die "no kernel at $KERNEL -- build it first"
 [ -f "$DTB" ]    || die "no DTB at $DTB -- build it first"
@@ -91,6 +105,28 @@ python3 "$MKBOOTIMG" \
     --ramdisk_offset "$RAMDISK_OFFSET" \
     --tags_offset "$TAGS_OFFSET" \
     --dtb_offset "$DTB_OFFSET"
+
+# --- AVB hash footers -----------------------------------------------------
+# Every stock partition on this phone carries an unsigned AVB hash footer
+# (Algorithm NONE): boot, vendor_boot and dtbo all have one. It is not
+# verified boot -- there is no signature and the bootloader is unlocked -- but
+# it is the envelope the ABL expects to find at the end of the partition, so
+# images written without one do not match what the device was built around.
+#
+# avbtool pads the image out to the full partition size, which is correct for
+# flashing. It is wrong for `fastboot boot`, where an oversized image is
+# rejected outright; that is one reason RAM-booting and flashing need
+# different images on this device.
+AVBTOOL="${LUMA_DUO2_AVBTOOL:-$HOME/LumaOS/tools/avb/avbtool.py}"
+if [ -f "$AVBTOOL" ]; then
+    info "adding unsigned AVB hash footers"
+    python3 "$AVBTOOL" add_hash_footer --image "$OUT/boot.img" \
+        --partition_name boot --partition_size 134217728 --algorithm NONE
+    python3 "$AVBTOOL" add_hash_footer --image "$OUT/vendor_boot.img" \
+        --partition_name vendor_boot --partition_size 100663296 --algorithm NONE
+else
+    warn "no avbtool at $AVBTOOL -- images will have no AVB footer"
+fi
 
 # --- Size check against the real partitions -------------------------------
 # boot_b is 128 MiB and vendor_boot_b is 96 MiB on this device. RAM-booting
