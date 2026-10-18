@@ -1,0 +1,21 @@
+--- a/arch/arm64/configs/vendor/lahaina_QGKI.config
++++ b/arch/arm64/configs/vendor/lahaina_QGKI.config
+@@ -334,3 +334,18 @@
+ # mode is off. Bring-up only: a shipping kernel must not carry this.
+ CONFIG_DEVMEM=y
+ # CONFIG_STRICT_DEVMEM is not set
++
++# Luma Duo 2: what a Fedora/systemd userspace needs that Android does not.
++# devtmpfs and fhandle are hard requirements of systemd and udev; the rest
++# are what Fedora's units expect (autofs, tmpfs ACLs/xattrs, SysV IPC, PID
++# and user namespaces for service sandboxing, the kernel hash API).
++CONFIG_DEVTMPFS=y
++CONFIG_DEVTMPFS_MOUNT=y
++CONFIG_FHANDLE=y
++CONFIG_AUTOFS_FS=y
++CONFIG_TMPFS_POSIX_ACL=y
++CONFIG_TMPFS_XATTR=y
++CONFIG_SYSVIPC=y
++CONFIG_PID_NS=y
++CONFIG_USER_NS=y
++CONFIG_CRYPTO_USER_API_HASH=y
