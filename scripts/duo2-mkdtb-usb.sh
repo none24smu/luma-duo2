@@ -17,7 +17,10 @@
 # /dev/ttyGS0 and no console -- which looks exactly like a kernel that never
 # booted, and is why several earlier attempts were unreadable.
 #
-# Forcing dr_mode to "peripheral" and dropping the extcon makes dwc3 come up
+# The node also carries usb-role-switch, which hands the decision to the
+# Type-C firmware on the ADSP; that is not running either.
+#
+# Forcing dr_mode to "peripheral" and dropping both makes dwc3 come up
 # as a gadget unconditionally at probe, with no userspace and no modules
 # involved. That is wrong for a shipping image -- the port can no longer act
 # as a host or charge-negotiate properly -- and right for a bring-up image
@@ -74,6 +77,13 @@ block_new = re.sub(r'\n\s*extcon = <[^>]*>;', '', block, count=1)
 n_extcon = 1 if block_new != block else 0
 block = block_new
 
+# usb-role-switch makes dwc3-msm wait for a role from the Type-C stack
+# (pmic-glink/UCSI on the ADSP), and while it is set the driver skips its own
+# "start in dr_mode" path entirely. With no ADSP running, no role ever comes
+# and the controller never starts -- the port stays dark even with
+# dr_mode = "peripheral". Removing it lets probe start the gadget itself.
+block, n_role = re.subn(r'\n\s*usb-role-switch;', '', block, count=1)
+
 block_new, n_mode = re.subn(r'dr_mode = "otg";', 'dr_mode = "peripheral";', block)
 block = block_new
 
@@ -84,7 +94,8 @@ block, n_speed = re.subn(r'maximum-speed = "super-speed-plus";',
 
 s = s[:start] + block + s[i+1:]
 p.write_text(s)
-print(f"    extcon removed: {n_extcon}, dr_mode->peripheral: {n_mode}, speed->high-speed: {n_speed}")
+print(f"    extcon removed: {n_extcon}, usb-role-switch removed: {n_role}, "
+      f"dr_mode->peripheral: {n_mode}, speed->high-speed: {n_speed}")
 if n_mode == 0:
     sys.exit("error: dr_mode was not patched; the tree is not shaped as expected")
 PY
