@@ -1,6 +1,6 @@
 --- a/arch/arm64/configs/vendor/lahaina_QGKI.config
 +++ b/arch/arm64/configs/vendor/lahaina_QGKI.config
-@@ -308,3 +308,14 @@
+@@ -308,3 +308,20 @@
  # MSCHANGE -> enable usermode helper on path /system/bin
  CONFIG_STATIC_USERMODEHELPER_PATH="/system/bin/core_collector"
  #End MSCHANGE
@@ -15,3 +15,9 @@
 +CONFIG_USB_G_SERIAL=y
 +CONFIG_U_SERIAL=y
 +CONFIG_U_SERIAL_CONSOLE=y
++
++# dummy_hcd is a software UDC + host pair for testing gadgets in loopback.
++# Built in, it registers before the real dwc3 controller, and g_serial binds
++# to the first UDC it finds -- so the console gadget attached to the phone
++# itself and never reached the USB port.
++# CONFIG_USB_DUMMY_HCD is not set

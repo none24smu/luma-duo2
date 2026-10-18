@@ -207,8 +207,9 @@ static void first_udc(char *name, size_t len)
     name[0] = '\0';
     if (!d)
         return;
+    /* Never a dummy_udc: that is a loopback to the phone itself. */
     while ((e = readdir(d)))
-        if (e->d_name[0] != '.') {
+        if (e->d_name[0] != '.' && strncmp(e->d_name, "dummy", 5)) {
             snprintf(name, len, "%s", e->d_name);
             break;
         }
