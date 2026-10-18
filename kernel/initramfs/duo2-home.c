@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -51,10 +52,25 @@ static long param(const char *cmdline, const char *key, long fallback)
     return p ? strtol(p + strlen(key), NULL, 10) : fallback;
 }
 
+/*
+ * switch_root moves /proc into the new root and deletes the initramfs's
+ * files, so after the hand-over this process has no /proc of its own. Mount
+ * one: without it /proc/1/root cannot be followed, and a healthy boot looks
+ * like one that never wrote its marker.
+ */
+static void ensure_proc(void)
+{
+    if (access("/proc/1", F_OK) == 0)
+        return;
+    mkdir("/proc", 0555);
+    mount("proc", "/proc", "proc", 0, NULL);
+}
+
 static int still_in_initramfs(void)
 {
     struct stat ours, pid1;
 
+    ensure_proc();
     if (stat("/", &ours) || stat("/proc/1/root/", &pid1))
         return 0;
     return ours.st_dev == pid1.st_dev && ours.st_ino == pid1.st_ino;
@@ -90,6 +106,7 @@ int main(int argc, char **argv)
     if (total > 0) {
         if (total > first)
             sleep(total - (first > 0 ? first : 0));
+        ensure_proc();
         if (access(MARKER, F_OK))
             home("booted system never reached multi-user.target");
     }
