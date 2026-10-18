@@ -29,16 +29,21 @@ for f in "$ROOTFS/etc/os-release" "$INITRAMFS" "$KERNEL"; do
     [ -e "$f" ] || die "missing input: $f"
 done
 [ -d "$MODULES/lib/modules" ] || die "no staged modules -- run duo2-stage-modules.sh"
-mkdir -p "$OUT"; rm -f "$OUT"/*.img "$OUT"/*.sparse
+mkdir -p "$OUT" "$BUILD/tools"; rm -f "$OUT"/*.img "$OUT"/*.sparse
+# Bring-up tools that live on the phone (tools/).
+"${CROSS_COMPILE:-aarch64-linux-gnu-}gcc" -O2 -Wall -o "$BUILD/tools/duo2-kmstest" \
+    "$LUMA_DUO2_ROOT/tools/duo2-kmstest.c"
 KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/Image"
 
 docker run --rm --platform linux/amd64 -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
     -v "$INITRAMFS:/in/initramfs:ro" -v "$KERNEL:/in/Image:ro" -v "$OUT:/out" \
+    -v "$BUILD/tools:/tools:ro" \
     "$IMAGE" bash -euo pipefail -c '
 dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 
 # Kernel modules and the mounts the booted system expects.
 cp -a /modules/lib/modules/. /rootfs/usr/lib/modules/
+install -m 0755 /tools/duo2-kmstest /rootfs/usr/local/bin/duo2-kmstest
 # Bring-up: SELinux permissive, which Luma allows for experimental-tier
 # devices. Whether the Fedora policy loads on this Android kernel is untested,
 # and a policy that fails to load under enforcing stops systemd outright.
