@@ -42,9 +42,11 @@ rollback_index = 0
 vbmeta = "untouched"
 
 [dtbo]
-# Luma ships a complete DTB, so Microsoft's Android overlays must not apply on
-# top of it. Only the slot the phone is already on is ever written: this port
-# does not touch the other slot, so Android stays intact there.
+# Luma ships a complete DTB, so Microsoft's overlays must not apply on top of
+# it. Only the slot the phone is already on is ever written; the other slot is
+# not touched. Note that neither slot is known to hold stock Android -- the
+# unit used for this port runs an OpenHarmony/Oniro system -- so the other
+# slot must not be treated as a recovery path.
 # 0x1800000, read with `fastboot getvar partition-size:dtbo_b`.
 policy = "blank"
 size = 25165824

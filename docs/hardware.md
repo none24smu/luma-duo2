@@ -24,7 +24,19 @@ The USB fastboot interface enumerates as `045e:0c2f` *Microsoft Corp. Surface
 Duo Fastboot*. The serial number is deliberately absent from this repository.
 
 **This port only ever uses slot `b`, the slot the phone is already on.** Slot
-`a` is left as Microsoft shipped it, so Android remains intact there.
+`a` is not touched.
+
+What is installed on this unit is **not stock Android**. A boot of it brought
+up a USB gadget identifying as `Surface Duo 2 OpenHarmony ACM + HDC`
+(`045e:0c2a`), so the phone is running an OpenHarmony/Oniro system. Earlier
+revisions of this file called slot `a` an "Android fallback"; that was an
+assumption and it was never verified. Do not rely on either slot holding
+stock Android.
+
+A practical consequence: a `fastboot boot` that the ABL rejects does not stop
+there -- the phone carries on into a normal boot of whatever is in `boot_b`.
+So a failed RAM-boot attempt can land in the installed OS rather than back at
+the bootloader. Arming the BCB beforehand did not prevent this in practice.
 
 ## Partitions (slot b)
 
