@@ -29,7 +29,11 @@ STATUS="$SESSION/collector.log"
 
 note() { printf '%s %s\n' "$(date -u +%H:%M:%SZ)" "$*" | tee -a "$STATUS"; }
 
-note "collector started; watching for USB gadget $DUO2_GADGET_USB_ID"
+if [ "${DUO2_GADGET_ANY:-0}" = "1" ]; then
+    note "collector started; taking any /dev/ttyACM* port"
+else
+    note "collector started; watching for USB gadget $DUO2_GADGET_USB_ID"
+fi
 note "writing to $SESSION"
 
 START=$SECONDS
@@ -42,6 +46,13 @@ while true; do
         [ -e "$tty" ] || continue
         vid="$(udevadm info -q property -n "$tty" 2>/dev/null | sed -n 's/^ID_VENDOR_ID=//p')"
         pid="$(udevadm info -q property -n "$tty" 2>/dev/null | sed -n 's/^ID_MODEL_ID=//p')"
+        # DUO2_GADGET_ANY=1 takes any CDC-ACM port. The gadget's USB ID
+        # depends on which kernel is running -- g_serial has its own default
+        # and a vendor kernel may use Microsoft's -- so pinning the ID is
+        # right once it is known and wrong while it is not.
+        if [ "${DUO2_GADGET_ANY:-0}" = "1" ]; then
+            port="$tty"; break
+        fi
         [ "$vid:$pid" = "$DUO2_GADGET_USB_ID" ] && { port="$tty"; break; }
     done
 
