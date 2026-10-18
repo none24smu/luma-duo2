@@ -1,0 +1,32 @@
+diff --git a/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dts b/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dts
+index 442405ba5f6a..cd18cd05d4d5 100644
+--- a/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dts
++++ b/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dts
+@@ -19,6 +19,27 @@ / {
+ 	compatible = "microsoft,surface-duo2", "qcom,sm8350";
+ 	chassis-type = "handset";
+ 
++	/*
++	 * The ABL selects a DTB by SoC id and revision and will not boot one
++	 * without them. Same values as the stock DTB for this phone's chip
++	 * (SM8350 v2.1).
++	 */
++	qcom,msm-id = <0x19f 0x20001>, <0x1c8 0x20001>, <0x1f5 0x20001>;
++	qcom,board-id = <0 0>;
++
++	reserved-memory {
++		/*
++		 * The splash the ABL leaves on screen. Until there is a display
++		 * driver it is the only output during bring-up, and the
++		 * display controller keeps scanning it out, so the kernel must
++		 * not hand it out as RAM.
++		 */
++		cont_splash_mem: memory@e1000000 {
++			reg = <0x0 0xe1000000 0x0 0x2300000>;
++			no-map;
++		};
++	};
++
+ 	aliases {
+ 		serial0 = &uart2;
+ 	};
