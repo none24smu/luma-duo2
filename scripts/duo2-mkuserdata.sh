@@ -98,6 +98,10 @@ ln -sf /usr/lib/systemd/system/sshd.service \
 # Bring-up GUI: Weston with the software renderer on both panels, started at
 # boot. Not Luma UI -- the first proof that a compositor drives the Duo 2.
 # The virtual (writeback) output is left off, and the screens never blank.
+# Only for a base rootfs: once duo2-compose-ui.sh has made greetd the display
+# manager, the Luma session owns the panels. (-L: the link is absolute, so
+# -e would follow it into this container rather than the rootfs.)
+if [ ! -L /rootfs/etc/systemd/system/display-manager.service ]; then
 install -d /rootfs/etc/xdg/weston
 printf "%s\n" "[core]" "idle-time=0" "" "[output]" "name=Virtual-1" "mode=off" \
     > /rootfs/etc/xdg/weston/weston.ini
@@ -115,6 +119,10 @@ printf "%s\n" "[Unit]" "Description=Luma Duo 2 bring-up: Weston on both panels" 
     > /rootfs/etc/systemd/system/luma-duo2-weston.service
 ln -sf ../luma-duo2-weston.service \
     /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-weston.service
+else
+rm -f /rootfs/etc/systemd/system/luma-duo2-weston.service \
+    /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-weston.service
+fi
 
 cat > /rootfs/etc/fstab <<EOF
 LABEL=pmOS_root  /      ext4  defaults  0 1

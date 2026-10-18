@@ -260,3 +260,33 @@ userspace on an Android 5.4 kernel with this backport will hit the same thing.
 | initramfs failure | duo2-home phase 1: PID 1 still in the initramfs at 120 s |
 | booted system that never reaches multi-user | duo2-home phase 2: no `/run/luma-duo2-booted` at 300 s |
 | any stage with a console | `bootloader` command over ttyACM0 (`duo2-bootloader.sh`) |
+
+## Luma's own UI on the panels (2026-10-18)
+
+Luma's package set built for aarch64 with Luma's own builder scripts (phoc,
+luma-phosh, luma-greeter, luma-greetd-session, Cage, GTK 4, libadwaita,
+libhandy, shell-state, search, backgrounds, Figtree), composed into the
+rootfs with `duo2-compose-ui.sh`, greetd on VT 7 (patch 0009).
+
+| # | Change | Result |
+|---|---|---|
+| U1 | first UI image | the bring-up Weston service (re-added by `duo2-mkuserdata.sh`) took the panels first; Luma's session and Presence both exited, greetd hit its start limit |
+| U2 | Weston off, greetd restarted | Presence greeter on phoc: **Luma wallpaper on both panels**, greeter window not visible |
+| U3 | `Virtual-1` output disabled in phoc | **Presence clock and date on DSI-1**; wallpaper on DSI-2 |
+
+### U2/U3: the writeback output
+
+The SDE exposes a writeback connector, `Virtual-1`, alongside the two DSI
+panels. phoc enables it and places it at 0,0, and the greeter's window opens
+on it, where no panel shows it. Weston was told to leave it off; phoc has to be
+as well.
+
+### Not yet working
+
+- **Touch.** `spi_hid` finds the digitizer (`045E:0C1D`, bound to
+  hid-microsoft) but it is a capacitive heat-map digitizer (Digitizer page,
+  usage 0x0F): it reports raw frames, not contacts. Android turns them into
+  touches in userspace; Linux has no input device until something does.
+- **GPU.** Phoc renders with pixman.
+- **Boot animation.** Plymouth is installed but not set up for the Duo 2.
+- **Clock.** No network time; the RTC reads September 2026.
