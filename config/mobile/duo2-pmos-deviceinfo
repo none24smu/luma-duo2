@@ -17,3 +17,10 @@ deviceinfo_header_version="3"
 deviceinfo_initfs_compression="gzip"
 deviceinfo_create_initfs_extra="false"
 deviceinfo_modules_initfs=""
+
+# The Duo 2's UFS storage has 4 KiB logical blocks, and postmarketOS attaches
+# the subpartitions inside userdata with losetup --direct-io=on, which cannot
+# issue 512-byte-aligned reads to it: with the default sector size the root
+# mount fails with "unable to read superblock". The userdata image's partition
+# table is written with 4096-byte sectors to match (duo2-mkuserdata.sh).
+deviceinfo_rootfs_image_sector_size="4096"
