@@ -77,6 +77,36 @@ Two things worth keeping from that line:
 **Consequence:** shipping a Luma device tree means building a `vendor_boot`
 image, not just a boot image. A boot v3 image alone cannot carry a DTB.
 
+### Confirming v3 against the device, not just the dump
+
+The header versions above were first read out of the files in `SD2Firmware/`.
+A dump can be stale or from another build, so the claim was checked against the
+hardware separately. In order of strength:
+
+1. **The device's own partition table contains `vendor_boot_a` and
+   `vendor_boot_b`** (96 MiB each, from `fastboot getvar all`). A `vendor_boot`
+   partition exists only for boot header v3 and later; a v2 device does not
+   have one at all. This is device-side evidence and does not depend on the
+   dump being correct.
+2. **43 of the 44 dump images match the device's partition sizes exactly**,
+   including the asymmetric pair `vbmeta_system_a` at 64 KiB against
+   `vbmeta_system_b` at 3,988 KiB — a coincidence that is not plausible. The
+   single mismatch is `super`, where the dump is a shrunk 13.45 GB against a
+   15.03 GB partition, which is normal for a super image.
+3. AOSP's own `unpack_bootimg` reports `boot image header version: 3` and
+   `vendor boot image header version: 3`, agreeing with the hand parse.
+4. The boot header records `os version: 11.0.0`. Devices launching on
+   Android 11 are required by GKI to use boot v3 with vendor_boot, and
+   Microsoft's kernel branch for this phone is `surfaceduo2/11/...`.
+5. Microsoft's own build script metadata
+   (`reference/msm-5.4/device_build/kernel/kernel.json`) lists
+   `vendor_ramdisk_kernel_modules`, which is a vendor_boot v3 concept.
+
+What this does **not** establish is that the bootloader would reject a v4
+image; v4 was never offered to it. Images are built as v3 because that is what
+is proven. The boot partition cannot be read back to settle it directly --
+`fastboot` 34.0.4 has no `fetch` command.
+
 ## Mainline kernel support
 
 `arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dts` is already in
