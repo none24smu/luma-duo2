@@ -1,0 +1,27 @@
+# Never commit anything that identifies a particular phone or person.
+.duo2.local
+*.serial
+
+# Vendor firmware and any binary pulled off the device or out of a factory
+# package. Luma's device tree forbids these outright.
+*.img
+*.bin
+*.elf
+*.mbn
+*.sparse
+*.zst
+firmware-store/
+
+# Build products and captured logs.
+build/
+logs/
+out/
+*.o
+*.ko
+*.dtb
+*.dtbo
+
+# Editor and Python noise.
+__pycache__/
+.venv/
+*.pyc
