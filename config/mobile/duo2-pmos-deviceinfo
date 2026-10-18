@@ -1,0 +1,19 @@
+# postmarketOS deviceinfo for the Surface Duo 2, as read by postmarketOS's
+# mkinitfs and initramfs. Luma boots through the unmodified postmarketOS
+# initramfs, as on the Fairphone 6; this is the device description it needs.
+#
+# Bring-up values for Microsoft's msm-5.4 kernel. The kernel can unpack gzip
+# and lz4 ramdisks but not zstd (CONFIG_RD_ZSTD is absent), and the boot image
+# carries one ramdisk, so everything goes into a single gzip archive.
+deviceinfo_format_version="0"
+deviceinfo_name="Microsoft Surface Duo 2"
+deviceinfo_manufacturer="Microsoft"
+deviceinfo_codename="microsoft-surfaceduo2"
+deviceinfo_year="2021"
+deviceinfo_chassis="handset"
+deviceinfo_arch="aarch64"
+deviceinfo_flash_method="fastboot"
+deviceinfo_header_version="3"
+deviceinfo_initfs_compression="gzip"
+deviceinfo_create_initfs_extra="false"
+deviceinfo_modules_initfs=""
