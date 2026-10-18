@@ -16,7 +16,7 @@ form_factor = "phone"
 year = 2021
 soc = "qcom/sm8350"
 tier = "experimental"
-maintainers = ["@REPLACE-WITH-GITHUB-HANDLE"]
+maintainers = ["@none24smu"]
 
 # Read from the device over fastboot.
 fastboot_product = "surfaceduo2"
