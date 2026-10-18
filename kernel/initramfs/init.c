@@ -418,15 +418,28 @@ static int host_configured(void)
     return !strncmp(state, "configured", 10);
 }
 
+/*
+ * Commands are matched at the end of the line. When the host opens the port
+ * its tty may still have echo on and bounce some of our own output back
+ * before it is switched to raw; that arrives as junk ahead of the first
+ * command, and must not turn "bootloader" into an unknown command.
+ */
+static int ends_with(const char *line, const char *cmd)
+{
+    size_t l = strlen(line), c = strlen(cmd);
+
+    return l >= c && !strcmp(line + l - c, cmd);
+}
+
 static void handle(const char *line)
 {
-    if (!strcmp(line, "bootloader"))
+    if (ends_with(line, "bootloader"))
         restart("host asked", "bootloader");
-    else if (!strcmp(line, "reboot"))
+    else if (ends_with(line, "reboot"))
         restart("host asked", NULL);
-    else if (!strcmp(line, "dmesg"))
+    else if (ends_with(line, "dmesg"))
         dump_dmesg();
-    else if (!strcmp(line, "help") || !line[0])
+    else if (ends_with(line, "help") || !line[0])
         say("[duo2-init] commands: bootloader reboot dmesg help\r\n");
     else
         say("[duo2-init] unknown command '%s'\r\n", line);

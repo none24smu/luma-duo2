@@ -30,7 +30,8 @@ if port="$(
     )" && [ -n "$port" ]; then
     info "console on $port: sending 'bootloader'"
     stty -F "$port" 115200 raw -echo 2>/dev/null || true
-    printf 'bootloader\r\n' > "$port"
+    # Leading CR/LF flushes any stray bytes already in the init's line buffer.
+    printf '\r\nbootloader\r\n' > "$port"
     for _ in $(seq 60); do
         if fastboot devices | awk '{print $1}' | grep -qx "$DUO2_SERIAL"; then
             info "the Duo 2 is back in fastboot"
