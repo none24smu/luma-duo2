@@ -81,16 +81,22 @@ during those 10 seconds, or a debug-UART cable.
 
 ## Flashed attempts (after boot_b became ours)
 
-Once `boot_b` was overwritten, a rejected image falls back to *fastboot*
-rather than into the installed OS, so iteration became safe. Every attempt
-below flashed `boot_b` + `vendor_boot_b` + a blank `dtbo_b` and rebooted.
+Every attempt below flashed `boot_b` + `vendor_boot_b` + a blank `dtbo_b` and
+rebooted.
+
+> **Correction.** This section originally said a failed image "falls back to
+> fastboot after ~15 s". It does not. Watching the phone shows the Microsoft
+> logo stays on screen indefinitely, and every return to fastboot in this table
+> was a person forcing it by hand. The ~15 s figure was the gap before that
+> intervention, not anything the phone did. Nothing here was ever "rejected" in
+> a way the host observed; the kernel's fate is unknown.
 
 | # | Kernel in boot.img | DTB in vendor_boot | vbmeta | Result |
 |---|---|---|---|---|
-| 7 | `Image.gz` | mainline, no `qcom,msm-id` | untouched | rejected, fastboot after ~16 s |
-| 8 | `Image.gz` | + `qcom,msm-id`/`board-id` | untouched | rejected, ~16 s |
-| 9 | `Image.gz` | + `qcom,msm-id`/`board-id` | `--disable-verification` | rejected, ~15 s |
-| 10 | **raw `Image`** | + `qcom,msm-id`/`board-id` | `--disable-verification` | rejected, ~15 s |
+| 7 | `Image.gz` | mainline, no `qcom,msm-id` | untouched | logo, hung; returned by hand |
+| 8 | `Image.gz` | + `qcom,msm-id`/`board-id` | untouched | logo, hung; returned by hand |
+| 9 | `Image.gz` | + `qcom,msm-id`/`board-id` | `--disable-verification` | logo, hung; returned by hand |
+| 10 | **raw `Image`** | + `qcom,msm-id`/`board-id` | `--disable-verification` | logo, hung; returned by hand |
 
 ### The kernel format was wrong in every earlier attempt
 
@@ -107,12 +113,12 @@ taken with a kernel the bootloader could not have executed.
 
 ### Where this stands
 
-The failure is now a consistent ~15 seconds followed by a fall back to
-fastboot. That timing is the same whatever is changed, which suggests a
-timeout or watchdog rather than a parse failure. With no console and no
+Every attempt ends the same way: the logo stays up and the phone does nothing
+observable until it is forced back to fastboot. With no console and no
 display driver there is still no way to distinguish "the ABL never handed
-off" from "the kernel started and died", and that ambiguity has been the
-limiting factor throughout.
+off" from "the kernel started and hung", and that ambiguity has been the
+limiting factor throughout. It also means every attempt costs a person's
+hands, which the bring-up images now have to remove.
 
 
 ## Do not probe unknown `oem` commands on this bootloader
