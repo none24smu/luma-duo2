@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# podman -> docker, for running Luma's package builders on a Docker host.
+#
+# Luma's scripts/packages/run-in-rpm-builder.sh drives a pinned Fedora
+# builder container with podman. This workstation has Docker instead. The two
+# CLIs agree on almost everything that wrapper uses; this translates the rest
+# and passes the remainder through untouched, so Luma's builders and their
+# pinned images run unmodified. Put this directory first on PATH for those
+# builds only (duo2-luma-builder.sh does).
+#
+#   podman container exists NAME        -> docker container inspect NAME
+#   inspect --format '{{.ImageName}}'   -> '{{.Config.Image}}'
+#   --arch aarch64|x86_64 (run, build)  -> --platform linux/arm64|amd64
+
+set -euo pipefail
+
+translate_args() {
+    out=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --arch)
+                case "$2" in
+                    aarch64|arm64) out+=(--platform linux/arm64) ;;
+                    x86_64|amd64) out+=(--platform linux/amd64) ;;
+                    *) out+=(--platform "linux/$2") ;;
+                esac
+                shift 2; continue ;;
+            --arch=*)
+                a=${1#--arch=}
+                case "$a" in aarch64) a=arm64 ;; x86_64) a=amd64 ;; esac
+                out+=(--platform "linux/$a"); shift; continue ;;
+            *'{{.ImageName}}'*)
+                out+=("${1//\{\{.ImageName\}\}/\{\{.Config.Image\}\}}"); shift; continue ;;
+        esac
+        out+=("$1"); shift
+    done
+}
+
+case "${1:-}" in
+    container)
+        if [ "${2:-}" = exists ]; then
+            exec docker container inspect "$3" >/dev/null 2>&1
+        fi ;;
+esac
+
+translate_args "$@"
+exec docker "${out[@]}"
