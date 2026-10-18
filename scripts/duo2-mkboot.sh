@@ -30,7 +30,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
 
-KBUILD="${LUMA_DUO2_KBUILD:-$LUMA_DUO2_ROOT/../build/duo2-kernel}"
+KBUILD="${LUMA_DUO2_KBUILD:-$LUMA_DUO2_ROOT/../build/duo2-mainline}"
 OUT="${LUMA_DUO2_OUT:-$LUMA_DUO2_ROOT/build}"
 STOCK="${LUMA_DUO2_STOCK:-$LUMA_DUO2_ROOT/../SD2Firmware}"
 MKBOOTIMG="${LUMA_DUO2_MKBOOTIMG:-$LUMA_DUO2_ROOT/../tools/mkbootimg/mkbootimg.py}"
@@ -55,20 +55,31 @@ if [ "$VENDOR" -eq 1 ]; then
     DTB="$OUT/duo2-usb.dtb"                 # stock DTBs, USB forced to device
 else
     KERNEL="$KBUILD/arch/arm64/boot/Image"  # raw, not Image.gz: stock is raw
-    DTB="$OUT/duo2-qcom.dtb"                # mainline DTB + qcom,msm-id
+    # msm-id/board-id are in the DTS itself (kernel/patches/mainline/0002)
+    DTB="$KBUILD/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dtb"
 fi
 
-# Appended to the stock vendor command line. console=ttyGS0 makes the USB
-# gadget the kernel console. The rest only matter for Microsoft's kernel, and
-# they are what makes every crash come back to fastboot instead of hanging:
-# a panic (or a watchdog bark, which becomes one) writes the "bootloader"
-# reboot reason, and download mode is off so the reset does not stop in
-# Qualcomm's crash-dump mode first.
-EXTRA_CMDLINE="console=ttyGS0,115200n8"
-[ "$VENDOR" -eq 1 ] && EXTRA_CMDLINE="$EXTRA_CMDLINE \
-qcom_reboot_reason.panic_reason=bootloader \
+# Command line. console=ttyGS0 makes the USB gadget the kernel console; the
+# rest is what makes every crash come back to fastboot instead of hanging: a
+# panic (or a watchdog bite) writes the "bootloader" reboot reason.
+#
+# Microsoft's kernel keeps the stock Android command line and appends ours,
+# plus download_mode=0 so a reset does not stop in Qualcomm's crash-dump
+# mode. Mainline replaces it outright: the stock one is for Android on 5.4
+# (swiotlb=0, msm_rtb, video=vfb, ...) and means nothing good to mainline.
+# There, panic=-1 restarts at once (defconfig waits forever), and
+# clk_ignore_unused/pd_ignore_unused keep the display clocks and power
+# domains the ABL left on, so the splash -- the status screen -- survives.
+if [ "$VENDOR" -eq 1 ]; then
+    CMDLINE_MODE=append
+    CMDLINE="console=ttyGS0,115200n8 qcom_reboot_reason.panic_reason=bootloader \
 qcom_dload_mode.download_mode=0 msm_poweroff.download_mode=0"
-EXTRA_CMDLINE="$(printf '%s' "$EXTRA_CMDLINE" | tr -s ' \\\n' ' ')"
+else
+    CMDLINE_MODE=replace
+    CMDLINE="console=ttyGS0,115200n8 reboot_mode.panic_mode=bootloader panic=-1 \
+clk_ignore_unused pd_ignore_unused"
+fi
+CMDLINE="$(printf '%s' "$CMDLINE" | tr -s ' \\\n' ' ')"
 
 for f in "$STOCK_BOOT" "$STOCK_VENDOR_BOOT" "$KERNEL" "$RAMDISK" "$DTB"; do
     [ -f "$f" ] || die "missing input: $f"
@@ -139,29 +150,25 @@ repack boot "$STOCK_BOOT" --output "$OUT/boot.img" "${BOOT_SWAPS[@]}"
 # rewritten. Linux accepts several console= arguments, and leaving the stock
 # ones in place keeps this image as close to the known-good one as possible.
 #
-# The stock vendor ramdisk is Android's first stage, including its own /init.
-# Ramdisks are unpacked vendor first and boot second, but a later archive
-# only replaces files it contains, and Android's first-stage pieces would
-# still be there around ours. For the vendor kernel it is replaced with an
-# empty archive so the boot ramdisk is the whole root filesystem.
+# The stock vendor ramdisk holds Android's first-stage fstabs and Microsoft's
+# GKI modules -- no /init, but nothing any bring-up image uses either. It is
+# replaced with an empty archive so the boot ramdisk is the whole root.
 VB_SWAPS=("$DTB:dtb")
-if [ "$VENDOR" -eq 1 ]; then
-    EMPTY_LIST="$(mktemp)"; : > "$EMPTY_LIST"
-    "$OUT/host/gen_init_cpio" "$EMPTY_LIST" | gzip -9 > "$OUT/vendor_ramdisk-empty.cpio.gz"
-    rm -f "$EMPTY_LIST"
-    VB_SWAPS+=("$OUT/vendor_ramdisk-empty.cpio.gz:vendor_ramdisk")
-fi
+EMPTY_LIST="$(mktemp)"; : > "$EMPTY_LIST"
+"$OUT/host/gen_init_cpio" "$EMPTY_LIST" | gzip -9 > "$OUT/vendor_ramdisk-empty.cpio.gz"
+rm -f "$EMPTY_LIST"
+VB_SWAPS+=("$OUT/vendor_ramdisk-empty.cpio.gz:vendor_ramdisk")
 repack vendor_boot "$STOCK_VENDOR_BOOT" --vendor_boot "$OUT/vendor_boot.img" \
     "${VB_SWAPS[@]}"
 
-info "appending to the vendor command line: $EXTRA_CMDLINE"
-python3 - "$WORK/vendor_boot/args0" "$EXTRA_CMDLINE" <<'PY'
+info "vendor command line ($CMDLINE_MODE): $CMDLINE"
+python3 - "$WORK/vendor_boot/args0" "$CMDLINE" "$CMDLINE_MODE" <<'PY'
 import os, sys
-p = sys.argv[1]
+p, extra, mode = sys.argv[1], os.fsencode(sys.argv[2]), sys.argv[3]
 args = open(p, "rb").read().split(b"\0")
 for i, a in enumerate(args):
     if a == b"--vendor_cmdline":
-        args[i+1] = args[i+1] + b" " + os.fsencode(sys.argv[2])
+        args[i+1] = extra if mode == "replace" else args[i+1] + b" " + extra
         break
 open(p, "wb").write(b"\0".join(args))
 PY
