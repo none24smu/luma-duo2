@@ -1,147 +1,141 @@
 #!/usr/bin/env bash
-# Assemble Android boot v3 + vendor_boot v3 images for the Surface Duo 2.
+# Build Duo 2 boot and vendor_boot images by repacking the stock ones.
 #
-# The Duo 2 is boot header v3, verified against the device rather than only
-# against a firmware dump (see docs/hardware.md). Under v3 the boot image
-# carries nothing but a kernel and a ramdisk: the DTB and the real command
-# line both live in vendor_boot. So a usable test image is always a pair, and
-# building only a boot image silently leaves Microsoft's Android device tree
-# in play.
+# Earlier versions of this script hand-wrote mkbootimg invocations and got the
+# header version, the kernel compression and the DTB placement wrong in turn,
+# because each of those is a property of what this particular bootloader
+# accepts and none of them is discoverable from the outside.
 #
-# Usage: duo2-mkboot.sh [-k KERNEL_BUILD_DIR] [-o OUT_DIR]
+# This follows the method Luma already uses for its other phones
+# (scripts/mobile/prepare-fp6-*-boot-candidate.sh): unpack the stock image
+# with `--format=mkbootimg`, which recovers the exact argument list that
+# produced it, prove that rebuilding from those arguments reproduces the stock
+# image byte for byte, and only then substitute the pieces being changed.
+# Every field we are not deliberately changing -- header version, page size,
+# load offsets, os_version, os_patch_level, board name -- is then correct by
+# construction rather than by guesswork.
+#
+# The round-trip check is the whole point. If it ever fails, the arguments are
+# not a faithful description of the stock image and nothing built from them
+# should be trusted, so the script stops.
 
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
 
 KBUILD="${LUMA_DUO2_KBUILD:-$HOME/LumaOS/build/duo2-kernel}"
 OUT="${LUMA_DUO2_OUT:-$LUMA_DUO2_ROOT/build}"
+STOCK="${LUMA_DUO2_STOCK:-$HOME/LumaOS/SD2Firmware}"
 MKBOOTIMG="${LUMA_DUO2_MKBOOTIMG:-$HOME/LumaOS/tools/mkbootimg/mkbootimg.py}"
-
-while getopts ":k:o:h" opt; do
-    case "$opt" in
-        k) KBUILD="$OPTARG" ;;
-        o) OUT="$OPTARG" ;;
-        h) sed -n '2,14p' "$0"; exit 0 ;;
-        *) die "unknown option -$OPTARG" ;;
-    esac
-done
-
-# A RAW arm64 Image, not Image.gz. The stock Duo 2 boot image contains an
-# uncompressed kernel -- "MZ" with the ARM64 "ARMd" magic at offset 0x38, which
-# `file` reports as "Linux kernel ARM64 boot executable Image" -- and the ABL
-# does not accept a gzip stream here. Every failed attempt before this one
-# shipped Image.gz. arm64 has no self-decompressing kernel, so compression is
-# purely the bootloader's business, and this one wants none.
-KERNEL="$KBUILD/arch/arm64/boot/Image"
-# The bootloader needs a tree carrying qcom,msm-id; duo2-mkdtb.sh adds it.
-# Falls back to the raw mainline DTB only if that has not been run, which the
-# ABL will not accept -- so it is a loud fallback, not a silent one.
-DTB="$OUT/duo2-qcom.dtb"
-if [ ! -f "$DTB" ]; then
-    warn "no $DTB -- run duo2-mkdtb.sh; falling back to the raw mainline DTB,"
-    warn "which has no qcom,msm-id and the bootloader will not select it"
-    DTB="$KBUILD/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dtb"
-fi
-
-[ -f "$KERNEL" ] || die "no kernel at $KERNEL -- build it first"
-[ -f "$DTB" ]    || die "no DTB at $DTB -- build it first"
-[ -f "$MKBOOTIMG" ] || die "no mkbootimg at $MKBOOTIMG"
-
-mkdir -p "$OUT"
-
-# --- Load offsets, read from the stock vendor_boot header -----------------
-PAGESIZE=4096
-BASE=0x00000000
-KERNEL_OFFSET=0x00008000
-RAMDISK_OFFSET=0x01000000
-TAGS_OFFSET=0x00000100
-DTB_OFFSET=0x01f00000
-
-# Matched to the stock image so the bootloader sees nothing unexpected.
-OS_VERSION=11.0.0
-OS_PATCH_LEVEL=2024-10
-
-# --- Command line ---------------------------------------------------------
-# Kept in the vendor cmdline, where the stock image also keeps it. The
-# bootloader concatenates the boot and vendor_boot command lines, so putting
-# console= in both would register the same console twice.
-#
-# No earlycon: with no debug-UART cable there is nothing to read it on, and
-# pointing it at an unclocked UART is a way to hang before the real console
-# exists. ttyGS0 is the CDC-ACM gadget; see docs/usb-logging.md.
-VENDOR_CMDLINE="console=ttyGS0,115200n8 printk.devkmsg=on rootwait"
-
-# --- Ramdisks -------------------------------------------------------------
-# The bring-up initramfs, if one was staged. vendor_boot v3 requires a vendor
-# ramdisk entry, so an empty cpio is supplied when there is nothing to put in
-# it.
-BOOT_RAMDISK="$OUT/initramfs.cpio.gz"
-[ -f "$BOOT_RAMDISK" ] || die "no initramfs at $BOOT_RAMDISK -- run duo2-mkinitramfs.sh first"
-
-EMPTY_RAMDISK="$OUT/vendor_ramdisk.empty.cpio.gz"
-: | cpio -o -H newc 2>/dev/null | gzip -9 > "$EMPTY_RAMDISK"
-
-# --- boot.img (v3): kernel + ramdisk, nothing else ------------------------
-info "building boot.img (header v3)"
-python3 "$MKBOOTIMG" \
-    --header_version 3 \
-    --kernel "$KERNEL" \
-    --ramdisk "$BOOT_RAMDISK" \
-    --os_version "$OS_VERSION" \
-    --os_patch_level "$OS_PATCH_LEVEL" \
-    -o "$OUT/boot.img"
-
-# --- vendor_boot.img (v3): DTB + cmdline + vendor ramdisk -----------------
-info "building vendor_boot.img (header v3)"
-python3 "$MKBOOTIMG" \
-    --header_version 3 \
-    --vendor_boot "$OUT/vendor_boot.img" \
-    --vendor_ramdisk "$EMPTY_RAMDISK" \
-    --dtb "$DTB" \
-    --vendor_cmdline "$VENDOR_CMDLINE" \
-    --pagesize "$PAGESIZE" \
-    --base "$BASE" \
-    --kernel_offset "$KERNEL_OFFSET" \
-    --ramdisk_offset "$RAMDISK_OFFSET" \
-    --tags_offset "$TAGS_OFFSET" \
-    --dtb_offset "$DTB_OFFSET"
-
-# --- AVB hash footers -----------------------------------------------------
-# Every stock partition on this phone carries an unsigned AVB hash footer
-# (Algorithm NONE): boot, vendor_boot and dtbo all have one. It is not
-# verified boot -- there is no signature and the bootloader is unlocked -- but
-# it is the envelope the ABL expects to find at the end of the partition, so
-# images written without one do not match what the device was built around.
-#
-# avbtool pads the image out to the full partition size, which is correct for
-# flashing. It is wrong for `fastboot boot`, where an oversized image is
-# rejected outright; that is one reason RAM-booting and flashing need
-# different images on this device.
+UNPACK="${LUMA_DUO2_UNPACK:-$HOME/LumaOS/tools/mkbootimg/unpack_bootimg.py}"
 AVBTOOL="${LUMA_DUO2_AVBTOOL:-$HOME/LumaOS/tools/avb/avbtool.py}"
-if [ -f "$AVBTOOL" ]; then
-    info "adding unsigned AVB hash footers"
-    python3 "$AVBTOOL" add_hash_footer --image "$OUT/boot.img" \
-        --partition_name boot --partition_size 134217728 --algorithm NONE
-    python3 "$AVBTOOL" add_hash_footer --image "$OUT/vendor_boot.img" \
-        --partition_name vendor_boot --partition_size 100663296 --algorithm NONE
-else
-    warn "no avbtool at $AVBTOOL -- images will have no AVB footer"
-fi
 
-# --- Size check against the real partitions -------------------------------
-# boot_b is 128 MiB and vendor_boot_b is 96 MiB on this device. RAM-booting
-# does not care, but flashing would, and an oversized image is worth catching
-# here rather than at the point of writing to the phone.
-check_size() {
-    local f="$1" limit="$2" name="$3" sz
-    sz="$(stat -c%s "$f")"
-    printf '    %-20s %10s bytes  (partition %s)\n' "$name" "$sz" "$limit"
-    [ "$sz" -le "$limit" ] || die "$name is larger than the $name partition"
+# Real partition sizes, read from the device with `fastboot getvar`.
+BOOT_PART_SIZE=134217728
+VENDOR_BOOT_PART_SIZE=100663296
+
+STOCK_BOOT="$STOCK/boot_b.img"
+STOCK_VENDOR_BOOT="$STOCK/vendor_boot_b.img"
+
+KERNEL="$KBUILD/arch/arm64/boot/Image"      # raw, not Image.gz: stock is raw
+RAMDISK="$OUT/initramfs.cpio.gz"
+DTB="$OUT/duo2-qcom.dtb"                    # mainline DTB + qcom,msm-id
+
+for f in "$STOCK_BOOT" "$STOCK_VENDOR_BOOT" "$KERNEL" "$RAMDISK" "$DTB"; do
+    [ -f "$f" ] || die "missing input: $f"
+done
+mkdir -p "$OUT"
+WORK="$OUT/repack"; rm -rf "$WORK"; mkdir -p "$WORK"
+
+# Stock images carry an AVB footer and are padded to the full partition, so
+# the image proper is only the first N bytes. avbtool reports where it ends.
+original_size() {
+    python3 "$AVBTOOL" info_image --image "$1" 2>/dev/null \
+        | sed -n 's/^Original image size: *\([0-9]*\) bytes/\1/p' | head -1
 }
-info "built:"
-check_size "$OUT/boot.img" 134217728 boot.img
-check_size "$OUT/vendor_boot.img" 100663296 vendor_boot.img
 
-info "RAM-boot them with:"
-printf '    %s/scripts/duo2-ramboot.sh %s %s\n' \
-    "$LUMA_DUO2_ROOT" "$OUT/boot.img" "$OUT/vendor_boot.img"
+# Rebuild from a recovered argument list. boot images are written with
+# --output, vendor_boot images with --vendor_boot.
+rebuild() {
+    local args_file=$1 out_flag=$2 output=$3
+    python3 - "$args_file" "$out_flag" "$output" "$MKBOOTIMG" <<'PY'
+import os, subprocess, sys
+args_file, out_flag, output, mkbootimg = sys.argv[1:5]
+args = open(args_file, "rb").read().split(b"\0")
+if args and args[-1] == b"":
+    args.pop()
+subprocess.run(["python3", mkbootimg, out_flag, output,
+                *(os.fsdecode(a) for a in args)], check=True)
+PY
+}
+
+# Unpack stock, prove the round trip, then swap components and rebuild.
+repack() {
+    local name=$1 stock=$2 out_flag=$3 candidate=$4; shift 4
+    local dir="$WORK/$name"; mkdir -p "$dir/base"
+    local orig; orig="$(original_size "$stock")"
+    [ -n "$orig" ] || die "$name: no AVB footer on $stock, cannot find image size"
+
+    head -c "$orig" "$stock" > "$dir/stock.img"
+    python3 "$UNPACK" --boot_img "$dir/stock.img" --out "$dir/base" \
+        --format=mkbootimg -0 > "$dir/args0" 2>/dev/null
+
+    rebuild "$dir/args0" "$out_flag" "$dir/roundtrip.img"
+    cmp -s "$dir/stock.img" "$dir/roundtrip.img" \
+        || die "$name: round-trip is not byte-identical to stock; the recovered
+mkbootimg arguments do not faithfully describe it, so a candidate built from
+them cannot be trusted"
+    info "$name: round-trip byte-identical to stock ($orig bytes)"
+
+    # Component substitutions, given as src:dstname pairs.
+    local pair src dst
+    for pair in "$@"; do
+        src="${pair%%:*}"; dst="${pair##*:}"
+        [ -f "$dir/base/$dst" ] || die "$name: stock image has no '$dst' to replace"
+        install -m 0644 "$src" "$dir/base/$dst"
+        info "$name: replaced $dst with $(basename "$src") ($(stat -c%s "$src") bytes)"
+    done
+
+    rebuild "$dir/args0" "$out_flag" "$candidate"
+}
+
+# --- boot: swap the kernel and the ramdisk --------------------------------
+repack boot "$STOCK_BOOT" --output "$OUT/boot.img" \
+    "$KERNEL:kernel" "$RAMDISK:ramdisk"
+
+# --- vendor_boot: swap the DTB, and add our console to the command line ---
+# The stock command line is kept verbatim and ttyGS0 appended, rather than
+# rewritten. Linux accepts several console= arguments, and leaving the stock
+# ones in place keeps this image as close to the known-good one as possible.
+repack vendor_boot "$STOCK_VENDOR_BOOT" --vendor_boot "$OUT/vendor_boot.img" \
+    "$DTB:dtb"
+
+info "appending console=ttyGS0 to the vendor command line"
+python3 - "$WORK/vendor_boot/args0" <<'PY'
+import sys
+p = sys.argv[1]
+args = open(p, "rb").read().split(b"\0")
+for i, a in enumerate(args):
+    if a == b"--vendor_cmdline":
+        args[i+1] = args[i+1] + b" console=ttyGS0,115200n8"
+        break
+open(p, "wb").write(b"\0".join(args))
+PY
+rebuild "$WORK/vendor_boot/args0" --vendor_boot "$OUT/vendor_boot.img"
+
+# --- AVB footers, padded to the exact partition size ----------------------
+# Stock boot, vendor_boot and dtbo all carry an unsigned footer (Algorithm
+# NONE). Luma's own Pixel 9 diagnostic requires a candidate to equal the stock
+# partition size exactly and to end in an AVBf footer, so both are enforced.
+info "adding unsigned AVB hash footers"
+python3 "$AVBTOOL" add_hash_footer --image "$OUT/boot.img" \
+    --partition_name boot --partition_size "$BOOT_PART_SIZE" --algorithm NONE
+python3 "$AVBTOOL" add_hash_footer --image "$OUT/vendor_boot.img" \
+    --partition_name vendor_boot --partition_size "$VENDOR_BOOT_PART_SIZE" --algorithm NONE
+
+for f in "$OUT/boot.img" "$OUT/vendor_boot.img"; do
+    [ "$(tail -c 64 "$f" | head -c 4)" = "AVBf" ] || die "$f has no AVBf footer"
+done
+info "built:"
+printf '    %-18s %10s bytes (partition %s)\n' \
+    boot.img "$(stat -c%s "$OUT/boot.img")" "$BOOT_PART_SIZE" \
+    vendor_boot.img "$(stat -c%s "$OUT/vendor_boot.img")" "$VENDOR_BOOT_PART_SIZE"
