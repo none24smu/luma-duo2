@@ -142,3 +142,43 @@ enabled on this phone despite the bootloader being unlocked, and flashing
 `vbmeta_b` with only `--disable-verification` did not clear it. The next step
 is `--disable-verity --disable-verification` together, confirmed by
 `oem device-info` reporting the mode as false, rather than assumed.
+
+
+## Microsoft's 5.4 kernel, and the first hands-off round trip (2026-10-18)
+
+| # | Kernel | DTB / cmdline | dtbo | Init | Result |
+|---|---|---|---|---|---|
+| 11 | ours (msm-5.4 + g_serial) | USB-patched, panic→bootloader | stock | blocking writes | static logo; recovered by hand at 4.5 min |
+| 12 | **stock** binary | same | stock | + configfs ACM | static logo; recovered by hand at 3.5 min |
+| 13 | stock binary | **stock vendor_boot** | stock | same | static logo; recovered by hand at 2.5 min |
+| 14 | ours | USB-patched | stock | non-blocking, 60 s enumeration check | **returned to fastboot by itself, 2:23** |
+| 15 | ours | + `usb-role-switch` removed | stock | + sysfs `mode=peripheral` | returned by itself, 2:24; no USB device on the host |
+
+**Attempt 14 is the first time the phone came home without a person.** That
+proves, in one go: the ABL hands off to a kernel we built, the kernel reaches
+our init, and `reboot("bootloader")` writes a reason the ABL honours.
+
+### 11-13 were misread at the time
+
+They were recorded live as "the kernel never reaches init". That does not
+follow. The init then waited only for `/dev/ttyGS0` to *exist*, and the
+gadget tty exists as soon as the function does, whether or not USB works --
+so a broken-USB boot fell through to the 5-minute idle timer, and each
+attempt was recovered by hand before it could fire. 13 was worse: with no
+`console=ttyGS0` the init dumped dmesg to the port with blocking writes,
+which wedge forever once the gadget's buffer fills with no host reading.
+All three are consistent with the init running.
+
+### What the stock tree's USB node actually needs
+
+`ssusb@a600000` carries `usb-role-switch` as well as `extcon`. With a role
+switch registered, dwc3-msm skips its own "start in dr_mode" branch and
+waits for a role from the Type-C stack on the ADSP, which bring-up does not
+run. Attempt 15 removed it and also forced `mode=peripheral` through sysfs;
+the host still saw nothing, so something else is also missing.
+
+### The dtbo is not optional for Microsoft's kernel
+
+The base DTB in vendor_boot describes only the SoC. PMIC power-on,
+`reboot_reason`, the board regulators and the Duo's own hardware are in
+dtbo. Attempts 7-10 ran with it blanked; from 11 on it is stock.
