@@ -1,0 +1,33 @@
+From: luma-duo2 bring-up
+Subject: [PATCH] libhandy 0005: restore the truncated last hunk
+
+The file ends mid-hunk. Its last hunk carries three lines of leading
+context but only two of trailing context, and its header (-566,8 +567,19)
+matches neither. GNU patch reads a hunk with less trailing than leading
+context as anchored to the end of the file, so at --fuzz=0 (as the spec
+applies it) the hunk is rejected even though every line matches the source.
+
+Restore the missing third trailing context line,
+  gtk_style_context_add_class (context, "unified");
+which follows in hdy-window-mixin.c, and set the header to the hunk as it
+now stands: 9 old lines, 21 new. It then applies at --fuzz=0 to libhandy
+1.8.3 with Luma patches 0001-0004 applied.
+
+diff --git a/patches/libhandy/0005-luma-one-title-row-per-window.patch b/patches/libhandy/0005-luma-one-title-row-per-window.patch
+index 88e1004..1c00486 100644
+--- a/patches/libhandy/0005-luma-one-title-row-per-window.patch
++++ b/patches/libhandy/0005-luma-one-title-row-per-window.patch
+@@ -252,7 +252,7 @@ index 4bade07..66f36aa 100644
+  #include "hdy-nothing-private.h"
+  #include "hdy-window-mixin-private.h"
+  
+-@@ -566,8 +567,19 @@ hdy_window_mixin_new (GtkWindow      *window,
++@@ -566,9 +567,21 @@ hdy_window_mixin_new (GtkWindow      *window,
+    GTK_CONTAINER_CLASS (self->klass)->add (GTK_CONTAINER (self->window),
+                                            self->content);
+  
+@@ -274,3 +274,4 @@ index 4bade07..66f36aa 100644
+ +  g_object_set_data (G_OBJECT (self->window), "luma-window-mixin-constructing", NULL);
+  
+    context = gtk_widget_get_style_context (GTK_WIDGET (self->window));
++   gtk_style_context_add_class (context, "unified");

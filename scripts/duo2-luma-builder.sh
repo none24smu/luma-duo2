@@ -74,6 +74,15 @@ if [ "${1:-}" = "--shell" ]; then
 fi
 [ $# -gt 0 ] || die "usage: duo2-luma-builder.sh BUILDER [BUILDER ...]"
 
+# Defects found in the Luma tree itself, kept as patches in luma-fixes/ and
+# applied to the checkout before building. Already-applied fixes are skipped.
+for fix in "$LUMA_DUO2_ROOT"/luma-fixes/*.patch; do
+    [ -f "$fix" ] || continue
+    if git -C "$LUMA" apply --check -R "$fix" 2>/dev/null; then continue; fi
+    git -C "$LUMA" apply "$fix" || die "luma-fixes/$(basename "$fix") does not apply"
+    info "applied luma-fixes/$(basename "$fix")"
+done
+
 # Lift the per-build job caps some Luma builders put on rpmbuild (see
 # tools/rpmbuild-jobs/rpmbuild) in every builder container that exists.
 install_jobs_shim() {
@@ -118,7 +127,15 @@ for builder in "$@"; do
                     ' _ "$script" "${specs[@]}"; }
     fi
     info "$builder: $mode"
-    if run > "$log" 2>&1; then
+    # A wrapped build whose only failure is copying a stale aarch64 pin is
+    # finished by duo2-collect-luma-rpms.sh (its output joins the log).
+    stale_pin() {
+        grep -qE "install: cannot stat '[^']*/RPMS/aarch64/[^']+\.rpm'" "$log" &&
+            "$LUMA_DUO2_ROOT/scripts/duo2-collect-luma-rpms.sh" "${builder_pkg:-}" >> "$log" 2>&1
+    }
+    builder_pkg="$(grep -oE 'build/packages/[a-z0-9-]+' "$LUMA/scripts/packages/$builder" | head -1)"
+    builder_pkg="${builder_pkg#build/packages/}"
+    if run > "$log" 2>&1 || stale_pin; then
         info "$builder: built in $(( (SECONDS - start) / 60 )) min"
         # Luma's builders end by printing the SHA-256 and path of each RPM
         # they produced. Install those into the builder, so packages built
