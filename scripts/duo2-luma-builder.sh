@@ -73,11 +73,23 @@ if [ "${1:-}" = "--shell" ]; then
     exec docker exec -it -w /luma "$NAME" bash
 fi
 [ $# -gt 0 ] || die "usage: duo2-luma-builder.sh BUILDER [BUILDER ...]"
+
+# Lift the per-build job caps some Luma builders put on rpmbuild (see
+# tools/rpmbuild-jobs/rpmbuild) in every builder container that exists.
+install_jobs_shim() {
+    local c
+    for c in "$NAME" luma-rpm-builder-f44; do
+        docker container inspect "$c" >/dev/null 2>&1 || continue
+        docker cp "$LUMA_DUO2_ROOT/tools/rpmbuild-jobs/rpmbuild" "$c:/usr/local/bin/rpmbuild" >/dev/null
+    done
+}
+install_jobs_shim
 mkdir -p "$LOGS"
 
 for builder in "$@"; do
     script="/luma/scripts/packages/$builder"
     [ -f "$LUMA/scripts/packages/$builder" ] || die "no $builder in Luma's scripts/packages"
+    install_jobs_shim
     log="$LOGS/${builder%.sh}.log"
     # The spec(s) a builder installs into SPECS/ -- their BuildRequires are
     # what dnf builddep needs to satisfy before rpmbuild can run.

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# rpmbuild with Luma's per-build job caps lifted, for the Duo 2 builders.
+#
+# Several of Luma's builder scripts pin parallelism on the rpmbuild command
+# line -- --define "_smp_build_ncpus 4", --define "_smp_mflags -j2" -- sized
+# for their own builder. Under qemu-user emulation on a 20-core workstation
+# that leaves most of the machine idle for hours. Installed as
+# /usr/local/bin/rpmbuild in the builder containers (ahead of /usr/bin on
+# PATH), this rewrites only those two defines to the container's core count,
+# or LUMA_DUO2_JOBS, and runs the real rpmbuild with everything else as
+# given. Luma's scripts are not modified.
+
+jobs="${LUMA_DUO2_JOBS:-$(nproc)}"
+args=()
+for a in "$@"; do
+    case "$a" in
+        "_smp_build_ncpus "*) a="_smp_build_ncpus $jobs" ;;
+        "_smp_mflags -j"*)    a="_smp_mflags -j$jobs" ;;
+    esac
+    args+=("$a")
+done
+exec /usr/bin/rpmbuild "${args[@]}"
