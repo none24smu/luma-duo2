@@ -1,0 +1,30 @@
+diff --git a/techpack/display/msm/sde/sde_formats.c b/techpack/display/msm/sde/sde_formats.c
+index a527bf12..baed724c 100644
+--- a/techpack/display/msm/sde/sde_formats.c
++++ b/techpack/display/msm/sde/sde_formats.c
+@@ -1287,11 +1287,21 @@ uint32_t sde_populate_formats(
+ 			pixel_formats[i] = format_list->fourcc_format;
+ 			pixel_modifiers[i++] = format_list->modifier;
+ 		} else {
+-			/* assume base formats grouped together */
+-			if (fourcc_format != format_list->fourcc_format) {
+-				fourcc_format = format_list->fourcc_format;
++			uint32_t k;
++
++			/*
++			 * Luma Duo 2: the catalog lists each format once per
++			 * modifier (linear, then UBWC further down), so the
++			 * same fourcc is not always adjacent. A plane's format
++			 * list must not contain duplicates -- Weston asserts
++			 * on it -- so check the whole list, not just the last.
++			 */
++			fourcc_format = format_list->fourcc_format;
++			for (k = 0; k < i; k++)
++				if (pixel_formats[k] == fourcc_format)
++					break;
++			if (k == i)
+ 				pixel_formats[i++] = fourcc_format;
+-			}
+ 		}
+ 	}
+ 

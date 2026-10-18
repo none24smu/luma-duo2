@@ -28,7 +28,11 @@ IMAGE="$TREE/out/target/product/duo2/obj/kernel/msm-5.4/arch/arm64/boot/Image"
 # breaks as soon as two patches touch the same file.
 mapfile -t touched < <(for p in "$PATCHES"/*.patch; do
     git -C "$KSRC" apply --numstat "$p" | cut -f3; done | sort -u)
-git -C "$KSRC" checkout -- "${touched[@]}"
+# Restore each file from whichever repository owns it: techpack/display is a
+# separate git repository inside the kernel tree.
+for f in "${touched[@]}"; do
+    git -C "$KSRC/$(dirname "$f")" checkout -- "$(basename "$f")"
+done
 for p in "$PATCHES"/*.patch; do
     info "applying: $(basename "$p")"
     git -C "$KSRC" apply "$p" || die "$(basename "$p") does not apply"
