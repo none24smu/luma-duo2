@@ -37,7 +37,7 @@ KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/Image"
 
 docker run --rm --platform linux/amd64 -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
     -v "$INITRAMFS:/in/initramfs:ro" -v "$KERNEL:/in/Image:ro" -v "$OUT:/out" \
-    -v "$BUILD/tools:/tools:ro" \
+    -v "$BUILD/tools:/tools:ro" -v "$BUILD/ssh/duo2_ed25519.pub:/in/ssh.pub:ro" \
     "$IMAGE" bash -euo pipefail -c '
 dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 
@@ -69,6 +69,53 @@ ln -sf /dev/null /rootfs/etc/systemd/system/serial-getty@hvc0.service
 mkdir -p /rootfs/etc/systemd/system/multi-user.target.wants
 ln -sf ../luma-duo2-booted.service \
     /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-booted.service
+# USB network (the ECM half of g_cdc): the phone is 172.16.42.1 on usb0 and
+# hands the workstation 172.16.42.2 by DHCP, with no router or DNS on offer
+# so the workstation never sends its own traffic this way.
+install -d -m 0700 /rootfs/etc/NetworkManager/system-connections
+printf "%s\n" "[connection]" "id=duo2-usb" "type=ethernet" "interface-name=usb0" \
+    "autoconnect=true" "" "[ipv4]" "method=manual" "address1=172.16.42.1/24" \
+    "" "[ipv6]" "method=disabled" \
+    > /rootfs/etc/NetworkManager/system-connections/duo2-usb.nmconnection
+chmod 0600 /rootfs/etc/NetworkManager/system-connections/duo2-usb.nmconnection
+printf "%s\n" "[Unit]" "Description=Luma Duo 2 bring-up: DHCP for the USB network link" \
+    "After=NetworkManager.service sys-subsystem-net-devices-usb0.device" \
+    "BindsTo=sys-subsystem-net-devices-usb0.device" "" "[Service]" \
+    "ExecStartPre=/bin/sh -c \"until ip -4 addr show usb0 | grep -q 172.16.42.1; do sleep 1; done\"" \
+    "ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --port=0 --interface=usb0 --bind-interfaces --dhcp-range=172.16.42.2,172.16.42.2,255.255.255.0,1h --dhcp-option=3 --dhcp-option=6 --dhcp-authoritative --log-dhcp" \
+    "Restart=always" "RestartSec=3" "" "[Install]" "WantedBy=multi-user.target" \
+    > /rootfs/etc/systemd/system/luma-duo2-usb-dhcp.service
+ln -sf ../luma-duo2-usb-dhcp.service \
+    /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-usb-dhcp.service
+
+# SSH over that link, root by key only (the bring-up key in build/ssh/, which
+# never leaves the workstation). Interactive access does not depend on the
+# serial console, whose receive side stops ~300 s into boot.
+install -d -m 0700 /rootfs/root/.ssh
+install -m 0600 /in/ssh.pub /rootfs/root/.ssh/authorized_keys
+ln -sf /usr/lib/systemd/system/sshd.service \
+    /rootfs/etc/systemd/system/multi-user.target.wants/sshd.service
+# Bring-up GUI: Weston with the software renderer on both panels, started at
+# boot. Not Luma UI -- the first proof that a compositor drives the Duo 2.
+# The virtual (writeback) output is left off, and the screens never blank.
+install -d /rootfs/etc/xdg/weston
+printf "%s\n" "[core]" "idle-time=0" "" "[output]" "name=Virtual-1" "mode=off" \
+    > /rootfs/etc/xdg/weston/weston.ini
+# ExecStartPre: the ABL splash keeps one display pipe reserved until a mode
+# set releases it, and a compositor that picks that pipe has its first
+# commit refused. A one-second legacy mode set from duo2-kmstest frees it.
+# Workaround until the splash handoff is fixed in the kernel.
+printf "%s\n" "[Unit]" "Description=Luma Duo 2 bring-up: Weston on both panels" \
+    "After=systemd-user-sessions.service" "" "[Service]" \
+    "Environment=LIBSEAT_BACKEND=noop XDG_RUNTIME_DIR=/run/user/0" \
+    "ExecStartPre=/usr/bin/install -d -m 0700 /run/user/0" \
+    "ExecStartPre=-/usr/bin/timeout 10 /usr/local/bin/duo2-kmstest 1" \
+    "ExecStart=/usr/bin/weston --backend=drm --renderer=pixman --shell=desktop --continue-without-input --log=/run/weston.log" \
+    "Restart=on-failure" "RestartSec=3" "" "[Install]" "WantedBy=multi-user.target" \
+    > /rootfs/etc/systemd/system/luma-duo2-weston.service
+ln -sf ../luma-duo2-weston.service \
+    /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-weston.service
+
 cat > /rootfs/etc/fstab <<EOF
 LABEL=pmOS_root  /      ext4  defaults  0 1
 LABEL=pmOS_boot  /boot  ext4  defaults  0 2
