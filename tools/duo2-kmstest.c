@@ -11,6 +11,8 @@
  *   --x0   leave the unused top byte of each XRGB8888 pixel at 0, as most
  *          renderers do, instead of 0xff -- shows whether the display
  *          pipeline treats it as alpha.
+ *   --last take the highest-numbered free CRTC instead of the lowest, as
+ *          Weston does -- shows whether only some CRTCs reach the panels.
  */
 #include <drm/drm.h>
 #include <drm/drm_mode.h>
@@ -37,6 +39,7 @@ static int io(int fd, unsigned long req, void *arg)
 }
 
 static uint32_t xmask = 0xffffffff;
+static int pick_last;
 
 static void bars(uint32_t *px, uint32_t w, uint32_t h, uint32_t pitch, int idx)
 {
@@ -65,6 +68,8 @@ int main(int argc, char **argv)
     for (int a = 1; a < argc; a++)
         if (!strcmp(argv[a], "--x0"))
             xmask = 0x00ffffff;
+        else if (!strcmp(argv[a], "--last"))
+            pick_last = 1;
     if (fd < 0) { perror("open /dev/dri/card0"); return 1; }
     if (io(fd, DRM_IOCTL_SET_MASTER, NULL))
         perror("SET_MASTER (continuing)");
@@ -104,16 +109,25 @@ int main(int argc, char **argv)
         c.encoders_ptr = (uintptr_t)encs;
         c.count_props = 0;
         if (io(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c)) { perror("GETCONNECTOR"); continue; }
+        if (c.count_modes > 16) c.count_modes = 16;
+        for (uint32_t m = 0; m < c.count_modes; m++)
+            printf("connector %u mode %u: \"%s\" %ux%u@%u clock=%u flags=0x%x type=0x%x\n",
+                   c.connector_id, m, modes[m].name, modes[m].hdisplay,
+                   modes[m].vdisplay, modes[m].vrefresh, modes[m].clock,
+                   modes[m].flags, modes[m].type);
 
         /* First encoder, then the first CRTC it can drive that is free. */
         e.encoder_id = c.encoder_id ? c.encoder_id : encs[0];
         if (io(fd, DRM_IOCTL_MODE_GETENCODER, &e)) { perror("GETENCODER"); continue; }
-        for (uint32_t k = 0; k < res.count_crtcs; k++)
+        for (uint32_t n = 0; n < res.count_crtcs; n++) {
+            uint32_t k = pick_last ? res.count_crtcs - 1 - n : n;
+
             if ((e.possible_crtcs & (1u << k)) && !(used_crtcs & (1u << k))) {
                 crtc = crtc_ids[k];
                 used_crtcs |= 1u << k;
                 break;
             }
+        }
         if (!crtc) { printf("connector %u: no free crtc\n", c.connector_id); continue; }
 
         db.width = modes[0].hdisplay;
