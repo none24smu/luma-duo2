@@ -87,7 +87,7 @@ done
 # tools/rpmbuild-jobs/rpmbuild) in every builder container that exists.
 install_jobs_shim() {
     local c
-    for c in "$NAME" luma-rpm-builder-f44; do
+    for c in "$NAME" luma-rpm-builder-f44 luma-rpm-builder-f44-x86; do
         docker container inspect "$c" >/dev/null 2>&1 || continue
         docker cp "$LUMA_DUO2_ROOT/tools/rpmbuild-jobs/rpmbuild" "$c:/usr/local/bin/rpmbuild" >/dev/null
     done
@@ -113,9 +113,20 @@ for builder in "$@"; do
         # on PATH talking to this machine's Docker.
         ensure_host_container
         mode="wrapped (Fedora x86_64 host -> Luma's pinned arm64 container)"
+        # Builders that take LUMA_TARGET_ARCHITECTURE build for aarch64 in
+        # Luma's pinned arm64 container; the rest are noarch and build in its
+        # x86_64 one -- natively here, no emulation. They need separate
+        # container names: Luma's wrapper rightly refuses to reuse a builder
+        # made from a different image.
+        if grep -q 'LUMA_TARGET_ARCHITECTURE' "$LUMA/scripts/packages/$builder"; then
+            target_env=(LUMA_TARGET_ARCHITECTURE=aarch64 LUMA_RPM_BUILDER_NAME=luma-rpm-builder-f44)
+        else
+            target_env=(LUMA_RPM_BUILDER_NAME=luma-rpm-builder-f44-x86)
+            mode="wrapped noarch (Fedora x86_64 host -> Luma's pinned x86_64 container)"
+        fi
         run() { docker exec -w "$LUMA" "$HOSTNAME_C" env \
                     PATH="$LUMA_DUO2_ROOT/tools/podman-docker:/usr/local/bin:/usr/bin:/bin" \
-                    LUMA_TARGET_ARCHITECTURE=aarch64 \
+                    "${target_env[@]}" \
                     bash "$LUMA/scripts/packages/$builder"; }
     else
         # Expects to run on the aarch64 builder itself.
@@ -146,6 +157,13 @@ for builder in "$@"; do
         mapfile -t rpms < <(grep -oE '^[0-9a-f]{64}  [^ ]*build/packages/[^ ]+\.rpm$' \
             "$log" | awk '{print $2}' | grep -v '\.src\.rpm$' \
             | sed "s|^$LUMA/|/luma/|" | sort -u || true)
+        # Some builders print no checksums; fall back to the package's
+        # stable RPMS/ directory -- RPMS/ or <arch>/RPMS/ -- never its work/ tree.
+        if [ ${#rpms[@]} -eq 0 ] && [ -n "${builder_pkg:-}" ]; then
+            mapfile -t rpms < <(find "$LUMA/build/packages/$builder_pkg" -path '*/work.*' -prune \
+                -o -path '*/RPMS/*' -name '*.rpm' ! -name '*-debug*' -print 2>/dev/null \
+                | sed "s|^$LUMA/|/luma/|" | sort)
+        fi
         for r in "${rpms[@]}"; do printf '    %s\n' "${r#/luma/}"; done
         if [ ${#rpms[@]} -gt 0 ]; then
             docker exec "$NAME" dnf -y -q install --allowerasing "${rpms[@]}" >> "$log" 2>&1 \
