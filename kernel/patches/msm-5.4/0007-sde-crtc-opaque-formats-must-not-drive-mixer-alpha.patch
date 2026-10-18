@@ -1,0 +1,22 @@
+diff --git a/techpack/display/msm/sde/sde_crtc.c b/techpack/display/msm/sde/sde_crtc.c
+index 32755418..e353f490 100644
+--- a/techpack/display/msm/sde/sde_crtc.c
++++ b/techpack/display/msm/sde/sde_crtc.c
+@@ -1520,9 +1520,16 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
+ 
+ 			for (lm_idx = 0; lm_idx < sde_crtc->num_mixers;
+ 							lm_idx++) {
++				/*
++				 * Luma Duo 2: only a format that has alpha may
++				 * drive the mixer's output alpha. For XRGB8888
++				 * this used to export the unused X byte as
++				 * alpha, and with it 0 -- as most renderers
++				 * leave it -- the panels showed black.
++				 */
+ 				if (bg_alpha_enable && !format->alpha_enable)
+ 					mixer[lm_idx].mixer_op_mode = 0;
+-				else
++				else if (format->alpha_enable)
+ 					mixer[lm_idx].mixer_op_mode |=
+ 							1 << pstate->stage;
+ 			}
