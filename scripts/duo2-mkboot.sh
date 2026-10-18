@@ -18,6 +18,11 @@
 # The round-trip check is the whole point. If it ever fails, the arguments are
 # not a faithful description of the stock image and nothing built from them
 # should be trusted, so the script stops.
+#
+# Usage: duo2-mkboot.sh [--vendor]
+#   default   mainline kernel + mainline DTB
+#   --vendor  Microsoft's msm-5.4 kernel (duo2-build-vendor.sh) + the stock
+#             DTBs patched for a USB console (duo2-mkdtb-usb.sh)
 
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
@@ -36,9 +41,30 @@ VENDOR_BOOT_PART_SIZE=100663296
 STOCK_BOOT="$STOCK/boot_b.img"
 STOCK_VENDOR_BOOT="$STOCK/vendor_boot_b.img"
 
-KERNEL="$KBUILD/arch/arm64/boot/Image"      # raw, not Image.gz: stock is raw
+VENDOR=0
+[ "${1:-}" = "--vendor" ] && VENDOR=1
+
 RAMDISK="$OUT/initramfs.cpio.gz"
-DTB="$OUT/duo2-qcom.dtb"                    # mainline DTB + qcom,msm-id
+if [ "$VENDOR" -eq 1 ]; then
+    VTREE="${LUMA_DUO2_VENDOR_TREE:-$LUMA_DUO2_ROOT/../reference/msm-5.4}"
+    KERNEL="$VTREE/out/target/product/duo2/obj/kernel/msm-5.4/arch/arm64/boot/Image"
+    DTB="$OUT/duo2-usb.dtb"                 # stock DTBs, USB forced to device
+else
+    KERNEL="$KBUILD/arch/arm64/boot/Image"  # raw, not Image.gz: stock is raw
+    DTB="$OUT/duo2-qcom.dtb"                # mainline DTB + qcom,msm-id
+fi
+
+# Appended to the stock vendor command line. console=ttyGS0 makes the USB
+# gadget the kernel console. The rest only matter for Microsoft's kernel, and
+# they are what makes every crash come back to fastboot instead of hanging:
+# a panic (or a watchdog bark, which becomes one) writes the "bootloader"
+# reboot reason, and download mode is off so the reset does not stop in
+# Qualcomm's crash-dump mode first.
+EXTRA_CMDLINE="console=ttyGS0,115200n8"
+[ "$VENDOR" -eq 1 ] && EXTRA_CMDLINE="$EXTRA_CMDLINE \
+qcom_reboot_reason.panic_reason=bootloader \
+qcom_dload_mode.download_mode=0 msm_poweroff.download_mode=0"
+EXTRA_CMDLINE="$(printf '%s' "$EXTRA_CMDLINE" | tr -s ' \\\n' ' ')"
 
 for f in "$STOCK_BOOT" "$STOCK_VENDOR_BOOT" "$KERNEL" "$RAMDISK" "$DTB"; do
     [ -f "$f" ] || die "missing input: $f"
@@ -106,17 +132,30 @@ repack boot "$STOCK_BOOT" --output "$OUT/boot.img" \
 # The stock command line is kept verbatim and ttyGS0 appended, rather than
 # rewritten. Linux accepts several console= arguments, and leaving the stock
 # ones in place keeps this image as close to the known-good one as possible.
+#
+# The stock vendor ramdisk is Android's first stage, including its own /init.
+# Ramdisks are unpacked vendor first and boot second, but a later archive
+# only replaces files it contains, and Android's first-stage pieces would
+# still be there around ours. For the vendor kernel it is replaced with an
+# empty archive so the boot ramdisk is the whole root filesystem.
+VB_SWAPS=("$DTB:dtb")
+if [ "$VENDOR" -eq 1 ]; then
+    EMPTY_LIST="$(mktemp)"; : > "$EMPTY_LIST"
+    "$OUT/host/gen_init_cpio" "$EMPTY_LIST" | gzip -9 > "$OUT/vendor_ramdisk-empty.cpio.gz"
+    rm -f "$EMPTY_LIST"
+    VB_SWAPS+=("$OUT/vendor_ramdisk-empty.cpio.gz:vendor_ramdisk")
+fi
 repack vendor_boot "$STOCK_VENDOR_BOOT" --vendor_boot "$OUT/vendor_boot.img" \
-    "$DTB:dtb"
+    "${VB_SWAPS[@]}"
 
-info "appending console=ttyGS0 to the vendor command line"
-python3 - "$WORK/vendor_boot/args0" <<'PY'
-import sys
+info "appending to the vendor command line: $EXTRA_CMDLINE"
+python3 - "$WORK/vendor_boot/args0" "$EXTRA_CMDLINE" <<'PY'
+import os, sys
 p = sys.argv[1]
 args = open(p, "rb").read().split(b"\0")
 for i, a in enumerate(args):
     if a == b"--vendor_cmdline":
-        args[i+1] = args[i+1] + b" console=ttyGS0,115200n8"
+        args[i+1] = args[i+1] + b" " + os.fsencode(sys.argv[2])
         break
 open(p, "wb").write(b"\0".join(args))
 PY
