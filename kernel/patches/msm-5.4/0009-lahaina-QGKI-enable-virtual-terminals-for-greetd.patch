@@ -1,0 +1,16 @@
+--- a/arch/arm64/configs/vendor/lahaina_QGKI.config
++++ b/arch/arm64/configs/vendor/lahaina_QGKI.config
+@@ -354,3 +354,13 @@
+ CONFIG_PID_NS=y
+ CONFIG_USER_NS=y
+ CONFIG_CRYPTO_USER_API_HASH=y
++
++# Luma Duo 2: virtual terminals for Luma's display manager.
++# greetd runs on a VT and Luma's greeter moves it to tty7; while the greeter
++# (Cage) hands the display to the shell (Phoc), Luma keeps the session's VT
++# in KD_GRAPHICS so nothing redraws a text console between them. Android
++# needs no VTs, so Microsoft's config has none. The dummy console backs them;
++# no framebuffer console is involved.
++CONFIG_VT=y
++CONFIG_VT_CONSOLE=y
++CONFIG_CONSOLE_TRANSLATIONS=y
