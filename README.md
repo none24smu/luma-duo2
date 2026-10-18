@@ -3,8 +3,10 @@
 Bring-up of [Luma Mobile](https://github.com/SimplyLuma/luma) — a Fedora-based
 Linux system — on the Microsoft Surface Duo 2 (`surfaceduo2`, Qualcomm SM8350).
 
-**Status: pre-boot.** The phone does not run Luma. It does not run any
-mainline kernel yet. This repository is the working record of getting there.
+**Status: bring-up tooling.** Luma Mobile does not run on the phone yet and is
+being built for it from scratch. What works today is the debug loop: the phone
+boots a test image, streams its kernel log over USB to `/dev/ttyACM0`, and is
+sent back to fastboot from the workstation with no hands on the phone.
 
 ## What this is
 
@@ -24,11 +26,13 @@ currently supports.
 |---|---|
 | Device talks over fastboot | yes, unlocked, slot `b` |
 | Boot image format understood | yes — Android boot v3 + vendor_boot v3 |
+| Microsoft's 5.4 kernel builds and boots | yes, with our bring-up patches |
+| USB console reaches the workstation | **yes** — `/dev/ttyACM0`, verified |
+| Returns to fastboot without a person | **yes** — on command, timeout or panic |
 | Mainline device tree exists | yes, minimal: storage, USB, UART, regulators |
+| Mainline kernel boots | no |
 | Display / GPU / touch / camera in mainline | **no** |
-| Kernel builds | not yet |
-| USB console reaches the workstation | not yet |
-| Boots | no |
+| Luma Mobile | not started on the device |
 
 See [docs/hardware.md](docs/hardware.md) for everything the hardware actually
 reports, and [docs/usb-logging.md](docs/usb-logging.md) for the debug workflow.
@@ -41,6 +45,7 @@ socs/qcom/sm8350/                 shared SM8350 family configuration
 kernel/config/                    defconfig fragments
 kernel/patches/                   patches against mainline
 kernel/patches/msm-5.4/           bring-up patches for Microsoft's 5.4 kernel
+kernel/initramfs/                 bring-up init: USB console, status screen, way home
 scripts/                          bring-up tooling
 docs/                             findings and workflow
 ```
@@ -57,16 +62,10 @@ echo 'DUO2_SERIAL=XXXXXXXXXXXX' > .duo2.local
 Find it with `fastboot devices` while only the Duo 2 is attached, or match the
 entry whose USB ID is `045e:0c2f`.
 
-Then, in two terminals:
-
-```sh
-./scripts/duo2-console.sh                              # reader, start first
-./scripts/duo2-ramboot.sh build/boot.img build/vendor_boot.img
-./scripts/duo2-bootloader.sh                           # get back
-```
-
-Iteration is `fastboot boot` only. Nothing is flashed until an image has
-already booted from RAM.
+Then follow the loop in [docs/usb-logging.md](docs/usb-logging.md): build
+Microsoft's kernel with our patches, flash the current slot (never vbmeta),
+reboot, read `/dev/ttyACM0`, and send the phone back with
+`./scripts/duo2-bootloader.sh`.
 
 ## Rules this repository follows
 
@@ -78,7 +77,7 @@ to the same standard even though it sits outside that tree:
 - **Nothing identifying a particular phone or person** — no serial numbers, no
   IMEI, no ICCID.
 - **The phone's radio identity is never written**, only preserved.
-- Only slot `b` is ever touched. Slot `a` stays as Microsoft shipped it.
+- Only the slot the phone is already on is touched, and never vbmeta.
 
 ## Licensing
 

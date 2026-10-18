@@ -1,101 +1,105 @@
 # Getting logs off the Duo 2 over USB
 
-This phone has no debug-UART cable attached, so the only console is a USB
-gadget the kernel raises itself. That single fact shapes the whole bring-up
-loop, and it is worth being blunt about what it costs: **nothing is visible
-until the dwc3 controller probes and the gadget enumerates.** A kernel that
-dies before that point says nothing at all.
+**Verified on the phone, 2026-10-18.** The phone boots, a USB serial console
+appears on the workstation as `/dev/ttyACM0`, the kernel log streams over it,
+and the phone is sent back to fastboot from the workstation. Nobody touches
+the phone.
 
-## The console
+This is bring-up tooling, not Luma Mobile. Luma is not on the phone. What
+runs is Microsoft's own 5.4 kernel with three small patches and a single
+static test program as `/init`. Its only purpose is to make every later step
+of the port observable.
 
-Mainline's Duo 2 device tree already sets `usb_1_dwc3 { dr_mode = "peripheral" }`,
-so the controller at `a600000` comes up as a gadget without any patching.
-Microsoft's own Android command line names the same controller
-(`androidboot.usbcontroller=a600000.dwc3`), which is a useful confirmation.
+## What runs on the phone
 
-The kernel is configured with the legacy `g_serial` gadget built in, rather
-than driving configfs from userspace:
+| Piece | Source | Why |
+|---|---|---|
+| Kernel | Microsoft msm-5.4 (lahaina QGKI) + `kernel/patches/msm-5.4/` | the stock kernel is known to start on this bootloader |
+| DTB (vendor_boot) | stock, patched by `duo2-mkdtb-usb.sh` | forces the USB port into device mode |
+| dtbo | **stock**, unmodified | holds the PMIC, `reboot_reason` and board regulators; without it nothing below works |
+| vendor ramdisk | empty | |
+| boot ramdisk | `kernel/initramfs/init.c` + `screen.c` | console, commands and the way home |
+
+### Kernel patches
+
+- **0001:** built-in `g_serial` with `U_SERIAL_CONSOLE`, and **`dummy_hcd`
+  removed**. Microsoft's config builds in `dummy_hcd`, a software loopback
+  controller. It registers before the real one, and `g_serial` bound to it, so
+  the console gadget was attached to the phone itself and never reached the
+  port. That was the last thing between us and a working console.
+- **0002:** `qcom_reboot_reason.panic_reason=` parameter, so a panic writes the
+  "bootloader" reason and lands in fastboot.
+- **0003:** `/dev/mem` with strict mode off, for the on-screen status
+  (bring-up only).
+
+### DTB changes (`ssusb@a600000`, all three silicon-revision DTBs)
+
+- `extcon` removed. The cable event comes from a PMIC charger driver that is
+  not running.
+- `usb-role-switch` removed. With it present, dwc3-msm waits for the Type-C
+  firmware on the ADSP to pick a role, which never happens here.
+- `dr_mode = "peripheral"`, `maximum-speed = "high-speed"`.
+
+### Command line additions
 
 ```
-CONFIG_USB_GADGET=y
-CONFIG_USB_G_SERIAL=y
-CONFIG_U_SERIAL_CONSOLE=y
+console=ttyGS0,115200n8
+qcom_reboot_reason.panic_reason=bootloader
+qcom_dload_mode.download_mode=0 msm_poweroff.download_mode=0
 ```
-
-and the command line carries `console=ttyGS0,115200n8`.
-
-This is deliberate. A configfs gadget needs userspace to assemble it, which
-means an initramfs that works — exactly the thing we are trying to debug. The
-legacy gadget binds to the first available UDC on its own, with no userspace at
-all, so it produces a console on a kernel that has nothing else. Printk output
-from before the console registers is not lost: it is replayed out of the ring
-buffer the moment `ttyGS0` comes up.
-
-On the workstation the gadget appears as `/dev/ttyACM0`.
 
 ## The loop
 
-Three scripts, in `scripts/`. All of them refuse to act on any phone whose
-`fastboot getvar product` is not `surfaceduo2`, because this workstation has
-more than one phone attached and picking "the first device" is how the wrong
-one gets written.
-
-**1. Start the reader first.** It waits for the port rather than failing when
-it is not there, so start it before booting anything:
-
 ```sh
-./scripts/duo2-console.sh
+DUO2_GADGET_ANY=1 ./scripts/duo2-logd.sh &   # collector: one file per boot under logs/
+./scripts/duo2-build-vendor.sh               # kernel (incremental)
+./scripts/duo2-mkinitramfs.sh                # init
+./scripts/duo2-mkboot.sh --vendor            # boot.img + vendor_boot.img
+./scripts/duo2-flash.sh --stock-dtbo         # current slot only; never vbmeta
+fastboot -s <serial> reboot                  # or the duo2_fastboot wrapper
+# ... /dev/ttyACM0 appears ~16-18 s later ...
+./scripts/duo2-bootloader.sh                 # back to fastboot in ~5-7 s
 ```
 
-It matches the gadget by USB vendor:product, not by lowest port number, and
-records a timestamped log to `logs/console-<UTC>.log`. `tio` reconnects by
-itself when the gadget drops at reboot, so one invocation survives a whole
-cycle. Quit with Ctrl-t then q.
+Commands on the port, one per line: `dmesg` (the whole kernel log), `help`,
+`reboot`, `bootloader`.
 
-**2. RAM-boot the image.** Never flash during iteration:
+## How the phone gets home without a person
 
-```sh
-./scripts/duo2-ramboot.sh build/boot.img build/vendor_boot.img
-```
+Every path out of the bring-up init ends in a reboot with the "bootloader"
+reason:
 
-`fastboot boot` loads into memory and jumps. Nothing is written, so a kernel
-that hangs is gone on the next power cycle and the boot partition is never at
-risk. Because the Duo 2 is boot v3, the DTB is in `vendor_boot`, so both images
-are passed — handing over only a boot image leaves the phone using Microsoft's
-Android device tree, which is not what we are testing.
+| Situation | What happens |
+|---|---|
+| host sends `bootloader` | fastboot immediately |
+| no `ttyGS0`, or the host never enumerates the gadget | fastboot after 60 s (90 s when the status screen is up) |
+| nothing from the host for `duo2.idle=` seconds | fastboot after 120 s by default; `0` disables |
+| kernel panic, or a watchdog bark that panics | fastboot via `panic_reason=bootloader` |
 
-**3. Get back to the bootloader.**
+The one case not covered is a hang before the kernel's watchdog is running.
+That still needs the 20-second Power hold.
 
-```sh
-./scripts/duo2-bootloader.sh
-```
+## When USB does not come up: the status screen
 
-If the phone is already in fastboot it says so and reports the current slot.
-If a kernel is up with a shell, `reboot bootloader` on the console is the clean
-path. If it is wedged, hold Power for about 20 seconds, then Volume Down and
-tap Power — the Duo 2 has no reset pin, so that is the only recovery.
+No display driver is loaded, so the display controller keeps scanning out
+the boot logo from the splash buffer at `0xe1000000`. The init reads the
+display pipes' registers (address, size, stride, bytes per pixel), finds the
+pipes fetching from the splash, and draws white-on-black status text there:
+- the current stage and a countdown,
+- `ttyGS0`, the UDC name and its state,
+- the dwc3-msm mode, driver binding and deferred probes,
+- the USB-related tail of the kernel log.
 
-## When the console stays silent
+A photo of the screen is how the `dummy_hcd` problem was found.
 
-This is the expected failure during early bring-up, and guessing is a waste of
-a flash cycle. In rough order:
+## Pitfalls already paid for
 
-1. **Did the gadget enumerate at all?** Watch `dmesg -w` on the workstation
-   while booting. A USB device appearing and then dropping means the kernel got
-   as far as dwc3 and died after; nothing appearing at all means it died
-   before.
-2. **pstore/ramoops.** The reliable answer to "what happened before the console
-   existed" is to capture the previous boot's dmesg across a reboot. This needs
-   a reserved-memory region in the device tree; mainline's Duo 2 DTS does not
-   declare one yet, and the downstream 5.4 tree in `reference/msm-5.4/` is
-   where to find the address Microsoft uses. This is the highest-value next
-   step for debuggability and is not done yet.
-3. **A debug UART cable.** A Qualcomm USB-C debug cable puts UART2 on the SBU
-   pins and gives bootloader-level output, which neither of the above can. If
-   bring-up stalls on a silent early hang, this stops being optional.
-
-## What this does not give us
-
-- No bootloader output. `fastboot` is the only visibility before the kernel.
-- No output from a kernel that panics before dwc3 probes.
-- No second console if the gadget itself is what is broken.
+- **Blocking writes wedge the init.** A gadget tty with no host reading it
+  fills up and blocks the writer forever. All output is non-blocking.
+- **`ttyGS0` existing proves nothing.** It appears as soon as the gadget
+  function does, working USB or not. Only the UDC state `configured` means
+  the host enumerated it.
+- **Echo on open.** The host's tty can bounce some of the phone's output back
+  before it is switched to raw. Commands are matched at the end of the line,
+  and the host sends a line break first.
+- **Never blank dtbo with Microsoft's kernel.** See `boot-attempts.md`.
