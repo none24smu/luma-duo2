@@ -35,6 +35,12 @@
  * kernel has only configfs, so if ttyGS0 has not appeared after
  * LEGACY_WAIT seconds, an ACM gadget is assembled in configfs here, with
  * g_serial's USB ID so the host tooling does not care which kernel it is.
+ *
+ * While USB is not working there is no way to see any of this from the host,
+ * so the same status -- each stage, the USB controller's state, deferred
+ * probes and the USB-related kernel log -- is drawn over the boot logo
+ * (screen.c), and the enumeration wait is stretched to SCREEN_WAIT so it can
+ * be read or photographed before the phone goes back to fastboot.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -53,13 +59,20 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
+#include <sys/utsname.h>
+
+#include "screen.h"
 
 #define GADGET_WAIT   60
 #define LEGACY_WAIT   10
+#define SCREEN_WAIT   90
 #define IDLE_DEFAULT  120
 #define HEARTBEAT     10
 
 static int port = -1;
+static time_t t0;
+
+static void status(const char *phase, long left);
 
 /* Best effort: anything the gadget cannot take right now is dropped. */
 static void out(const char *buf, size_t n)
@@ -96,6 +109,10 @@ static void say(const char *fmt, ...)
 
 static void restart(const char *why, const char *arg)
 {
+    char phase[160];
+
+    snprintf(phase, sizeof(phase), "REBOOT %s: %s", arg ? arg : "", why);
+    status(phase, 0);
     say("[duo2-init] %s -> reboot %s\r\n", why, arg ? arg : "");
     sync();
     sleep(1);   /* let the last line leave the gadget before it drops */
@@ -161,6 +178,26 @@ static void put(const char *path, const char *val)
     }
 }
 
+/* Read a one-line sysfs/proc value into buf, trimmed; "-" if unreadable. */
+static const char *value(const char *path, char *buf, size_t len)
+{
+    int fd = open(path, O_RDONLY);
+    ssize_t n = fd < 0 ? -1 : read(fd, buf, len - 1);
+
+    if (fd >= 0)
+        close(fd);
+    if (n <= 0)
+        return strcpy(buf, "-");
+    buf[n] = '\0';
+    buf[strcspn(buf, "\n")] = '\0';
+    return buf;
+}
+
+static int exists(const char *path)
+{
+    return access(path, F_OK) == 0;
+}
+
 /* First UDC registered with the gadget core, or "" if there is none yet. */
 static void first_udc(char *name, size_t len)
 {
@@ -178,11 +215,26 @@ static void first_udc(char *name, size_t len)
     closedir(d);
 }
 
-/* Build a CDC-ACM gadget in configfs and bind it to the first UDC. */
+/* Bind the configfs gadget, if one was built, to the first UDC. Retried
+ * from the wait loops, since the controller may register late or never. */
+static void bind_configfs(void)
+{
+    char udc[256], cur[256];
+
+    if (!exists("/config/usb_gadget/g1/UDC"))
+        return;
+    value("/config/usb_gadget/g1/UDC", cur, sizeof(cur));
+    if (cur[0] && strcmp(cur, "-"))
+        return;
+    first_udc(udc, sizeof(udc));
+    if (udc[0])
+        put("/config/usb_gadget/g1/UDC", udc);
+}
+
+/* Build a CDC-ACM gadget in configfs and try to bind it. */
 static void configfs_acm(void)
 {
     const char *g = "/config/usb_gadget/g1";
-    char udc[256];
 
     mkdir("/config", 0755);
     mount("configfs", "/config", "configfs", 0, NULL);
@@ -196,14 +248,7 @@ static void configfs_acm(void)
     mkdir("/config/usb_gadget/g1/configs/c.1", 0755);
     symlink("/config/usb_gadget/g1/functions/acm.usb0",
             "/config/usb_gadget/g1/configs/c.1/acm.usb0");
-    for (int i = 0; i < GADGET_WAIT; i++) {
-        first_udc(udc, sizeof(udc));
-        if (udc[0]) {
-            put("/config/usb_gadget/g1/UDC", udc);
-            return;
-        }
-        sleep(1);
-    }
+    bind_configfs();
 }
 
 /*
@@ -225,23 +270,123 @@ static void force_peripheral(void)
         put(mode, "peripheral");
 }
 
+static int interesting(const char *l)
+{
+    static const char *const keys[] = {
+        "usb", "dwc", "phy", "udc", "gadget", "acm", "serial", "defer",
+        "fail", "error", "unable", "timeout", "regulator", "init",
+    };
+    char low[256];
+    size_t i;
+
+    for (i = 0; l[i] && i < sizeof(low) - 1; i++)
+        low[i] = (l[i] >= 'A' && l[i] <= 'Z') ? l[i] + 32 : l[i];
+    low[i] = '\0';
+    for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+        if (strstr(low, keys[i]))
+            return 1;
+    return 0;
+}
+
+#define SCREEN_ROWS 60
+#define LOG_ROWS    44
+
+/* Draw the current state over the boot logo. Cheap to call when there is no
+ * screen: screen_show() does nothing once the probe has found none. */
+static void status(const char *phase, long left)
+{
+    static char rows[SCREEN_ROWS][128];
+    static int probed_empty;
+    const char *ptr[SCREEN_ROWS];
+    char a[64], b[64], c[64], udc[256], path[320];
+    char *log = NULL, *tail[LOG_ROWS];
+    struct utsname u;
+    int n = 0, nt = 0, len;
+
+    static time_t last_draw;
+
+    if (probed_empty)
+        return;
+    /* Redraws are not free; keep the clock-driven waits honest. */
+    if (strncmp(phase, "REBOOT", 6) && last_draw && time(NULL) - last_draw < 3)
+        return;
+    last_draw = time(NULL);
+
+    uname(&u);
+    first_udc(udc, sizeof(udc));
+    snprintf(path, sizeof(path), "/sys/class/udc/%s/state", udc);
+
+    snprintf(rows[n++], 128, "LUMA DUO2 BRING-UP   up %lds   %s",
+             (long)(time(NULL) - t0), u.release);
+    snprintf(rows[n++], 128, "> %s", phase);
+    snprintf(rows[n++], 128, "  back to fastboot in %lds", left);
+    snprintf(rows[n++], 128, "ttyGS0 %s | udc %s | state %s",
+             exists("/sys/class/tty/ttyGS0") ? "yes" : "NO",
+             udc[0] ? udc : "NONE", udc[0] ? value(path, a, sizeof(a)) : "-");
+    snprintf(rows[n++], 128, "ssusb mode %s | ssusb drv %s | dwc3 drv %s",
+             value("/sys/devices/platform/soc/a600000.ssusb/mode", b, sizeof(b)),
+             exists("/sys/devices/platform/soc/a600000.ssusb/driver") ? "yes" : "NO",
+             exists("/sys/devices/platform/soc/a600000.ssusb/a600000.dwc3/driver")
+                 ? "yes" : "NO");
+    snprintf(rows[n++], 128, "deferred: %s",
+             value("/sys/kernel/debug/devices_deferred", c, sizeof(c)));
+    snprintf(rows[n++], 128, "--- kernel log (usb/dwc/phy/udc/defer/fail/error) ---");
+
+    len = klogctl(10 /* SYSLOG_ACTION_SIZE_BUFFER */, NULL, 0);
+    if (len > 0 && (log = malloc(len + 1))) {
+        len = klogctl(3 /* SYSLOG_ACTION_READ_ALL */, log, len);
+        log[len > 0 ? len : 0] = '\0';
+        for (char *l = strtok(log, "\n"); l; l = strtok(NULL, "\n")) {
+            if (l[0] == '<' && strchr(l, '>'))
+                l = strchr(l, '>') + 1;
+            if (!interesting(l))
+                continue;
+            if (nt == LOG_ROWS) {
+                memmove(tail, tail + 1, sizeof(tail[0]) * (LOG_ROWS - 1));
+                nt--;
+            }
+            tail[nt++] = l;
+        }
+    }
+    for (int i = 0; i < nt && n < SCREEN_ROWS; i++)
+        snprintf(rows[n++], 128, "%s", tail[i]);
+    free(log);
+
+    for (int i = 0; i < n; i++)
+        ptr[i] = rows[i];
+    screen_show(ptr, n);
+    if (!screen_count())
+        probed_empty = 1;
+}
+
 /* Wait for the gadget's tty to be registered, then make its node. */
 static int open_gadget(void)
 {
     char devnum[32] = "";
     unsigned maj, min;
 
-    for (int i = 0; i < GADGET_WAIT; i++) {
-        int fd = open("/sys/class/tty/ttyGS0/dev", O_RDONLY);
+    time_t start = time(NULL);
+    int forced = 0, assembled = 0;
+
+    for (;;) {
+        long i = time(NULL) - start;
+        int fd;
+
+        if (i >= GADGET_WAIT)
+            break;
+        fd = open("/sys/class/tty/ttyGS0/dev", O_RDONLY);
 
         if (fd >= 0) {
             read(fd, devnum, sizeof(devnum) - 1);
             close(fd);
             break;
         }
-        if (i == 2)
+        status(i < LEGACY_WAIT ? "waiting for ttyGS0 (g_serial)"
+                               : "waiting for ttyGS0 (configfs ACM)",
+               GADGET_WAIT - i);
+        if (i >= 2 && !forced++)
             force_peripheral();
-        if (i == LEGACY_WAIT)
+        if (i >= LEGACY_WAIT && !assembled++)
             configfs_acm();
         sleep(1);
     }
@@ -306,15 +451,33 @@ int main(void)
     }
     idle = idle_limit(cmdline);
 
+    t0 = time(NULL);
+    /* No devtmpfs: the nodes the status screen needs are made here. */
+    mknod("/dev/mem", S_IFCHR | 0600, makedev(1, 1));
+    mkdir("/sys/kernel/debug", 0755);
+    mount("debugfs", "/sys/kernel/debug", "debugfs", 0, NULL);
+    status("init started", GADGET_WAIT);
+
     port = open_gadget();
     if (port < 0)
         restart("no ttyGS0, USB gadget never came up",
                 "bootloader");
-    for (int i = 0; !host_configured(); i++) {
-        if (i >= GADGET_WAIT)
-            restart("host never enumerated the gadget", "bootloader");
-        sleep(1);
+    {
+        int wait = screen_count() ? SCREEN_WAIT : GADGET_WAIT;
+
+        time_t start = time(NULL);
+
+        while (!host_configured()) {
+            long i = time(NULL) - start;
+
+            if (i >= wait)
+                restart("host never enumerated the gadget", "bootloader");
+            bind_configfs();
+            status("ttyGS0 up; waiting for the host to enumerate", wait - i);
+            sleep(1);
+        }
     }
+    status("host enumerated the gadget: console live", idle);
 
     if (tcgetattr(port, &t) == 0) {
         cfmakeraw(&t);

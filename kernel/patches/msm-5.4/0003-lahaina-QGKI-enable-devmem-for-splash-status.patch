@@ -1,0 +1,15 @@
+--- a/arch/arm64/configs/vendor/lahaina_QGKI.config
++++ b/arch/arm64/configs/vendor/lahaina_QGKI.config
+@@ -325,3 +325,12 @@
+ # to the first UDC it finds -- so the console gadget attached to the phone
+ # itself and never reached the USB port.
+ # CONFIG_USB_DUMMY_HCD is not set
++
++# Luma Duo 2 bring-up: /dev/mem for the on-screen status display.
++# With no display driver loaded, the only output is the boot logo the ABL
++# left in its splash buffer, which the display controller keeps scanning out.
++# The bring-up init writes status text into that buffer through /dev/mem.
++# The splash is reserved RAM, which STRICT_DEVMEM refuses to map, so strict
++# mode is off. Bring-up only: a shipping kernel must not carry this.
++CONFIG_DEVMEM=y
++# CONFIG_STRICT_DEVMEM is not set

@@ -43,12 +43,30 @@ fi
 if [ "$PROBE" -eq 1 ]; then
     SOURCE="$SRC/init-reboot-probe.c"; NAME="initramfs-probe.cpio.gz"
 else
-    SOURCE="$SRC/init.c"; NAME="initramfs.cpio.gz"
+    SOURCE="$SRC/init.c $SRC/screen.c"; NAME="initramfs.cpio.gz"
 fi
 
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 info "compiling $(basename "$SOURCE") (static: the phone has no libc)"
-"$CC" -static -Os -o "$STAGE/init" "$SOURCE"
+# The status screen draws with the kernel's own 8x16 console font, taken from
+# the mainline tree in the project rather than copied into this repository.
+FONT_SRC="${LUMA_DUO2_FONT_SRC:-$LUMA_DUO2_ROOT/../linux-mainline/linux/lib/fonts/font_8x16.c}"
+[ -f "$FONT_SRC" ] || die "no $FONT_SRC"
+python3 - "$FONT_SRC" "$STAGE/font8x16.h" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+body = src[src.index("/* 0 0x00"):]
+data = re.findall(r"0x[0-9a-fA-F]{2}(?=,)", body)[:4096]
+assert len(data) == 4096, len(data)
+with open(sys.argv[2], "w") as f:
+    f.write("/* Generated from lib/fonts/font_8x16.c (GPL-2.0). */\n")
+    f.write("static const unsigned char font8x16[4096] = {\n")
+    for i in range(0, 4096, 16):
+        f.write("    " + ", ".join(data[i:i+16]) + ",\n")
+    f.write("};\n")
+PY
+# shellcheck disable=SC2086  # SOURCE is a list of files
+"$CC" -static -Os -I"$STAGE" -I"$SRC" -o "$STAGE/init" $SOURCE
 "$STRIP" "$STAGE/init"
 
 # Major/minor numbers are the standard Linux assignments: console is 5:1,
