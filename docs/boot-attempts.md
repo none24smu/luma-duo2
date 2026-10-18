@@ -182,3 +182,39 @@ the host still saw nothing, so something else is also missing.
 The base DTB in vendor_boot describes only the SoC. PMIC power-on,
 `reboot_reason`, the board regulators and the Duo's own hardware are in
 dtbo. Attempts 7-10 ran with it blanked; from 11 on it is stock.
+
+
+## Mainline, and what this ABL demands of dtbo (2026-10-18)
+
+Mainline v7.3-rc7 with `kernel/patches/mainline/` (ABL identity and splash
+reservation in the DTS, panic → bootloader in reboot-mode) and the bring-up
+config. Every image below that the ABL refused came back to fastboot about
+15 s after the unlocked warning, **without the Microsoft logo**: the ABL
+never handed off.
+
+| # | Kernel / DTB | dtbo | Result |
+|---|---|---|---|
+| 16-17 | mainline | blank (zeros) | refused |
+| 18 | **Microsoft's** | blank | **refused** — so blank dtbo alone is fatal |
+| 19 | mainline | empty overlays (stock IDs, mainline compatible) | refused |
+| 20 | Microsoft's | same | refused |
+| 21 | Microsoft's | same + AVB footer | refused |
+| 22 | Microsoft's | **stock** (control) | boots, ttyACM0 |
+| 23 | mainline | empty overlays, stock compatible, footer | refused |
+| 24 | Microsoft's | same | refused |
+| 25 | Microsoft's | **stock with 12 bytes changed** | **boots**, ttyACM0 |
+| 26 | mainline | one fragment per overlay (`target-path = "/"`) | refused |
+
+What is established:
+
+- **A blank dtbo is fatal on this phone.** Luma's FP6 policy of blanking dtbo
+  does not carry over.
+- **The dtbo hash in vbmeta is not enforced** (25), so a dtbo of our own is
+  allowed. vbmeta stays untouched.
+- **Overlays with no fragments are refused** (20, 21, 24) even with the stock
+  identifiers, compatible and footer.
+
+What is not: whether 26 failed on the dtbo or on the mainline DTB/kernel.
+Mainline was parked here in favour of Microsoft's kernel for now; the next
+mainline step is 26's dtbo under Microsoft's kernel, which separates the two.
+`duo2-mkdtbo.sh` builds that dtbo.
