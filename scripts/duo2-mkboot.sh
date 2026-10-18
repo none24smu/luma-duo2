@@ -19,13 +19,16 @@
 # not a faithful description of the stock image and nothing built from them
 # should be trusted, so the script stops.
 #
-# Usage: duo2-mkboot.sh [--vendor [--stock-kernel]]
+# Usage: duo2-mkboot.sh [--vendor [--stock-kernel] | --luma]
 #   default         mainline kernel + mainline DTB
 #   --vendor        Microsoft's msm-5.4 kernel (duo2-build-vendor.sh) + the
 #                   stock DTBs patched for a USB console (duo2-mkdtb-usb.sh)
 #   --stock-kernel  as --vendor, but keep the kernel binary from stock boot_b.
 #                   Same source and compiler as our build, so it separates
 #                   "our kernel build is wrong" from "everything around it is".
+#   --luma          as --vendor, but the ramdisk is postmarketOS's initramfs
+#                   (duo2-mkinitramfs-pmos.sh), which mounts Luma's pmOS_root
+#                   from userdata, instead of the bring-up test init.
 
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
@@ -44,11 +47,13 @@ VENDOR_BOOT_PART_SIZE=100663296
 STOCK_BOOT="$STOCK/boot_b.img"
 STOCK_VENDOR_BOOT="$STOCK/vendor_boot_b.img"
 
-VENDOR=0 STOCK_KERNEL=0
+VENDOR=0 STOCK_KERNEL=0 LUMA=0
 [ "${1:-}" = "--vendor" ] && VENDOR=1
+[ "${1:-}" = "--luma" ] && VENDOR=1 && LUMA=1
 [ "$VENDOR" -eq 1 ] && [ "${2:-}" = "--stock-kernel" ] && STOCK_KERNEL=1
 
 RAMDISK="$OUT/initramfs.cpio.gz"
+[ "$LUMA" -eq 1 ] && RAMDISK="${LUMA_DUO2_INITRAMFS_OUT:-$LUMA_DUO2_ROOT/../build/duo2-initramfs}/initramfs-luma"
 if [ "$VENDOR" -eq 1 ]; then
     VTREE="${LUMA_DUO2_VENDOR_TREE:-$LUMA_DUO2_ROOT/../reference/msm-5.4}"
     KERNEL="$VTREE/out/target/product/duo2/obj/kernel/msm-5.4/arch/arm64/boot/Image"
@@ -74,6 +79,9 @@ if [ "$VENDOR" -eq 1 ]; then
     CMDLINE_MODE=append
     CMDLINE="console=ttyGS0,115200n8 qcom_reboot_reason.panic_reason=bootloader \
 qcom_dload_mode.download_mode=0 msm_poweroff.download_mode=0"
+    # postmarketOS's initramfs: find pmOS_root (by label, inside userdata),
+    # mount it as Luma's boot.toml does, and hand over to its /sbin/init.
+    [ "$LUMA" -eq 1 ] && CMDLINE="$CMDLINE pmos_rootfsopts=defaults rootwait init=/init"
 else
     CMDLINE_MODE=replace
     CMDLINE="console=ttyGS0,115200n8 reboot_mode.panic_mode=bootloader panic=-1 \
