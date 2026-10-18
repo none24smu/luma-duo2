@@ -1,0 +1,5 @@
+# Packages the Duo 2 bring-up adds on top of Luma's own mobile lists.
+# Not part of Luma; remove once the device has a real network setup.
+
+# DHCP for the USB network link, so the workstation configures itself.
+dnsmasq

@@ -33,9 +33,10 @@ OUTDIR="$(cd "$OUTDIR" && pwd)"; LUMA="$(cd "$LUMA" && pwd)"
 
 info "composing in $IMAGE (arm64, emulated) -> $OUTDIR/rootfs"
 docker run --rm --platform linux/arm64 \
-    -v "$LUMA:/luma:ro" -v "$OUTDIR:/out" "$IMAGE" bash -euo pipefail -c '
+    -v "$LUMA:/luma:ro" -v "$LUMA_DUO2_ROOT/config/mobile:/bringup:ro" \
+    -v "$OUTDIR:/out" "$IMAGE" bash -euo pipefail -c '
 rootfs=/out/rootfs
-lists="/luma/config/mobile/packages.txt /luma/config/mobile/phone-capability-packages.txt"
+lists="/luma/config/mobile/packages.txt /luma/config/mobile/phone-capability-packages.txt /bringup/duo2-bringup-packages.txt"
 mapfile -t packages < <(sed -e "/^[[:space:]]*#/d" -e "/^[[:space:]]*\$/d" $lists | sort -u)
 
 # Report, rather than silently skip, anything Fedora 44 does not carry.

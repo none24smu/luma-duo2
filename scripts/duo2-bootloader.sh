@@ -18,6 +18,24 @@ if fastboot devices | awk '{print $1}' | grep -qx "$DUO2_SERIAL"; then
     exit 0
 fi
 
+# A booted Luma system answers over SSH on the USB network; that path does
+# not depend on the serial console's receive side.
+SSH="$(dirname "${BASH_SOURCE[0]}")/duo2-ssh.sh"
+if "$SSH" -o ConnectTimeout=3 true </dev/null >/dev/null 2>&1; then
+    info "phone reachable over SSH: sending 'bootloader'"
+    "$SSH" bootloader </dev/null >/dev/null 2>&1 || true
+    for _ in $(seq 90); do
+        if fastboot devices | awk '{print $1}' | grep -qx "$DUO2_SERIAL"; then
+            info "the Duo 2 is back in fastboot"
+            duo2_assert_identity
+            info "current slot: $(duo2_current_slot)"
+            exit 0
+        fi
+        sleep 1
+    done
+    warn "sent 'bootloader' over SSH but the phone did not reach fastboot within 90 s"
+fi
+
 # Booted far enough to give us a console? Then ask the bring-up init, which
 # reboots with the "bootloader" reason. This is the hands-off path.
 if port="$(

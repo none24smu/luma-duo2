@@ -18,7 +18,8 @@ DUO2_EXPECTED_PRODUCT="surfaceduo2"
 # USB IDs. Fastboot is Microsoft's; the gadget IDs are whatever the kernel's
 # g_serial defaults to until we set our own in the Luma gadget config.
 DUO2_FASTBOOT_USB_ID="045e:0c2f"
-DUO2_GADGET_USB_ID="${DUO2_GADGET_USB_ID:-0525:a4a7}"
+# g_cdc (CDC composite: ECM network + ACM console); g_serial was 0525:a4a7.
+DUO2_GADGET_USB_ID="${DUO2_GADGET_USB_ID:-0525:a4aa}"
 
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
