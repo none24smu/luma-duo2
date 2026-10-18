@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build Microsoft's Surface Duo 2 kernel (msm-5.4, lahaina QGKI) with the
-# bring-up patches in kernel/patches/msm-5.4/.
+# bring-up patches in kernel/patches/msm-5.4/, applied in order.
 #
 # This is the first-console kernel: Microsoft's own tree is known to reach
 # userspace on this bootloader, so the USB console is proved here before the
@@ -23,16 +23,15 @@ IMAGE="$TREE/out/target/product/duo2/obj/kernel/msm-5.4/arch/arm64/boot/Image"
 
 [ -d "$KSRC/.git" ] || die "no msm-5.4 git tree at $KSRC"
 
+# Restore every file the patches touch to Microsoft's version, then apply the
+# whole series in order. Checking each patch for "already applied" on its own
+# breaks as soon as two patches touch the same file.
+mapfile -t touched < <(for p in "$PATCHES"/*.patch; do
+    git -C "$KSRC" apply --numstat "$p" | cut -f3; done | sort -u)
+git -C "$KSRC" checkout -- "${touched[@]}"
 for p in "$PATCHES"/*.patch; do
-    name="$(basename "$p")"
-    if git -C "$KSRC" apply --check -R "$p" 2>/dev/null; then
-        info "already applied: $name"
-    elif git -C "$KSRC" apply --check "$p" 2>/dev/null; then
-        info "applying: $name"
-        git -C "$KSRC" apply "$p"
-    else
-        die "$name neither applies nor is already applied"
-    fi
+    info "applying: $(basename "$p")"
+    git -C "$KSRC" apply "$p" || die "$(basename "$p") does not apply"
 done
 
 export KBUILD_BUILD_USER=luma KBUILD_BUILD_HOST=duo2-bringup
