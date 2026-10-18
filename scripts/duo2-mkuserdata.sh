@@ -32,7 +32,7 @@ done
 mkdir -p "$OUT"; rm -f "$OUT"/*.img "$OUT"/*.sparse
 KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/Image"
 
-docker run --rm -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
+docker run --rm --platform linux/amd64 -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
     -v "$INITRAMFS:/in/initramfs:ro" -v "$KERNEL:/in/Image:ro" -v "$OUT:/out" \
     "$IMAGE" bash -euo pipefail -c '
 dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
@@ -49,6 +49,21 @@ printf "%s\n" "#!/bin/sh" "# Luma Duo 2 bring-up: reboot into fastboot." \
     "exec systemctl reboot --reboot-argument=bootloader" \
     > /rootfs/usr/local/sbin/bootloader
 chmod 0755 /rootfs/usr/local/sbin/bootloader
+# The marker duo2-home waits for: without it 300 s into boot (duo2.booted=),
+# the phone goes back to fastboot by itself.
+printf "%s\n" "[Unit]" \
+    "Description=Luma Duo 2 bring-up: mark the boot as reaching multi-user" \
+    "After=multi-user.target" "" "[Service]" "Type=oneshot" \
+    "ExecStart=/usr/bin/touch /run/luma-duo2-booted" "" \
+    "[Install]" "WantedBy=multi-user.target" \
+    > /rootfs/etc/systemd/system/luma-duo2-booted.service
+# The Microsoft kernel registers an hvc0 console with no hypervisor behind it
+# (hvc_open fails with -22); the systemd getty generator still starts a getty
+# on it, which fails and leaves the system "degraded". Mask it.
+ln -sf /dev/null /rootfs/etc/systemd/system/serial-getty@hvc0.service
+mkdir -p /rootfs/etc/systemd/system/multi-user.target.wants
+ln -sf ../luma-duo2-booted.service \
+    /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-booted.service
 cat > /rootfs/etc/fstab <<EOF
 LABEL=pmOS_root  /      ext4  defaults  0 1
 LABEL=pmOS_boot  /boot  ext4  defaults  0 2
@@ -60,13 +75,17 @@ cp /in/Image /in/initramfs "$stage/boot/"
 
 boot_mb=256
 root_mb=$(( $(du -sm /rootfs | cut -f1) * 13 / 10 + 512 ))
-mkfs.ext4 -q -L pmOS_boot -d "$stage/boot" /out/boot.img "${boot_mb}M"
-mkfs.ext4 -q -L pmOS_root -d /rootfs      /out/root.img "${root_mb}M"
+# 4 KiB blocks on both: the phone reads them through 4 KiB sectors, and
+# mkfs would otherwise give the small boot filesystem 1 KiB blocks.
+mkfs.ext4 -q -b 4096 -L pmOS_boot -d "$stage/boot" /out/boot.img "${boot_mb}M"
+mkfs.ext4 -q -b 4096 -L pmOS_root -d /rootfs      /out/root.img "${root_mb}M"
 
-# Partition table: 1 MiB alignment, boot then root.
+# Partition table: 1 MiB alignment, boot then root, in 4096-byte sectors --
+# the UFS logical block size, and what the initramfs attaches the image with
+# (deviceinfo_rootfs_image_sector_size).
 total_mb=$(( 1 + boot_mb + root_mb + 1 ))
 truncate -s "${total_mb}M" /out/userdata.img
-sfdisk -q /out/userdata.img <<EOF
+sfdisk -q --sector-size 4096 /out/userdata.img <<EOF
 label: dos
 start=1MiB, size=${boot_mb}MiB, type=83
 size=${root_mb}MiB, type=83
