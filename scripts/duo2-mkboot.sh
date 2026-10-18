@@ -22,12 +22,12 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
 
-KBUILD="${LUMA_DUO2_KBUILD:-$HOME/LumaOS/build/duo2-kernel}"
+KBUILD="${LUMA_DUO2_KBUILD:-$LUMA_DUO2_ROOT/../build/duo2-kernel}"
 OUT="${LUMA_DUO2_OUT:-$LUMA_DUO2_ROOT/build}"
-STOCK="${LUMA_DUO2_STOCK:-$HOME/LumaOS/SD2Firmware}"
-MKBOOTIMG="${LUMA_DUO2_MKBOOTIMG:-$HOME/LumaOS/tools/mkbootimg/mkbootimg.py}"
-UNPACK="${LUMA_DUO2_UNPACK:-$HOME/LumaOS/tools/mkbootimg/unpack_bootimg.py}"
-AVBTOOL="${LUMA_DUO2_AVBTOOL:-$HOME/LumaOS/tools/avb/avbtool.py}"
+STOCK="${LUMA_DUO2_STOCK:-$LUMA_DUO2_ROOT/../SD2Firmware}"
+MKBOOTIMG="${LUMA_DUO2_MKBOOTIMG:-$LUMA_DUO2_ROOT/../tools/mkbootimg/mkbootimg.py}"
+UNPACK="${LUMA_DUO2_UNPACK:-$LUMA_DUO2_ROOT/../tools/mkbootimg/unpack_bootimg.py}"
+AVBTOOL="${LUMA_DUO2_AVBTOOL:-$LUMA_DUO2_ROOT/../tools/avb/avbtool.py}"
 
 # Real partition sizes, read from the device with `fastboot getvar`.
 BOOT_PART_SIZE=134217728

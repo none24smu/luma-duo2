@@ -20,7 +20,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/duo2-env.sh"
 
-KBUILD="${LUMA_DUO2_KBUILD:-$HOME/LumaOS/build/duo2-kernel}"
+KBUILD="${LUMA_DUO2_KBUILD:-$LUMA_DUO2_ROOT/../build/duo2-kernel}"
 OUT="${LUMA_DUO2_OUT:-$LUMA_DUO2_ROOT/build}"
 SRC="$KBUILD/arch/arm64/boot/dts/qcom/sm8350-microsoft-surface-duo2.dtb"
 
