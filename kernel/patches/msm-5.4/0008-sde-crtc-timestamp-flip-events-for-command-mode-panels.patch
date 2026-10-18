@@ -1,0 +1,54 @@
+--- a/techpack/display/msm/sde/sde_crtc.c
++++ b/techpack/display/msm/sde/sde_crtc.c
+@@ -2345,6 +2345,42 @@
+  * @crtc: Pointer to drm crtc structure
+  * @file: Pointer to drm file
+  */
++/*
++ * Luma Duo 2: send a flip event stamped with the time the frame completed.
++ *
++ * drm_crtc_send_vblank_event() uses the CRTC's last vblank timestamp, but a
++ * command-mode panel has no vblank interrupt here, so that stays at its boot
++ * value and every flip reports a presentation time of ~0. Compositors pace
++ * their repaints and client frame callbacks from these times; Weston logged
++ * "time until next presentation is abnormal: -609022 msec" and never
++ * composited a client surface. This is called when the frame is done, so
++ * the current monotonic time is the honest presentation time.
++ */
++static void _sde_crtc_send_flip_event(struct drm_crtc *crtc,
++		struct drm_pending_vblank_event *e)
++{
++	ktime_t now = ktime_get();
++	u64 seq = drm_crtc_vblank_count(crtc);
++	struct timespec64 tv;
++
++	e->pipe = drm_crtc_index(crtc);
++	switch (e->event.base.type) {
++	case DRM_EVENT_VBLANK:
++	case DRM_EVENT_FLIP_COMPLETE:
++		tv = ktime_to_timespec64(now);
++		e->event.vbl.sequence = seq;
++		e->event.vbl.tv_sec = tv.tv_sec;
++		e->event.vbl.tv_usec = tv.tv_nsec / 1000;
++		break;
++	case DRM_EVENT_CRTC_SEQUENCE:
++		if (seq)
++			e->event.seq.sequence = seq;
++		e->event.seq.time_ns = ktime_to_ns(now);
++		break;
++	}
++	drm_send_event_locked(crtc->dev, &e->base);
++}
++
+ void sde_crtc_complete_flip(struct drm_crtc *crtc,
+ 		struct drm_file *file)
+ {
+@@ -2368,7 +2404,7 @@
+ 		DRM_DEBUG_VBL("%s: send event: %pK\n",
+ 					sde_crtc->name, event);
+ 		SDE_EVT32_VERBOSE(DRMID(crtc));
+-		drm_crtc_send_vblank_event(crtc, event);
++		_sde_crtc_send_flip_event(crtc, event);
+ 	}
+ 
+ end:
