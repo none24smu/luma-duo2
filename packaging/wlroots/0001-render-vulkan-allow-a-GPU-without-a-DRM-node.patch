@@ -1,0 +1,92 @@
+From: luma-duo2
+Subject: render/vulkan: allow a GPU without a DRM node (opt-in)
+
+A Vulkan device is matched to the display by VK_EXT_physical_device_drm. A
+GPU driven outside DRM -- an Adreno on Qualcomm's KGSL, as on vendor
+kernels, through Mesa's Turnip -- has no DRM node, so it can never match and
+the renderer fails, although it renders into the display's dma-bufs just as
+well. With WLR_VK_ALLOW_NON_DRM_DEVICE=1, use the single such device, and
+allocate and share buffers on the display device's node.
+
+--- a/render/vulkan/vulkan.c
++++ b/render/vulkan/vulkan.c
+@@ -5,6 +5,7 @@
+ #include <fcntl.h>
+ #include <math.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <stdint.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+@@ -273,6 +274,16 @@
+ 		return VK_NULL_HANDLE;
+ 	}
+ 
++	// A GPU with no DRM node at all -- an Adreno driven through Qualcomm's
++	// KGSL rather than drm/msm, as on vendor kernels -- cannot report a DRM
++	// identity, so it can never match the display device. It can still
++	// render into the display's dma-bufs. Opt in with
++	// WLR_VK_ALLOW_NON_DRM_DEVICE=1 to use the single such device.
++	VkPhysicalDevice non_drm_phdev = VK_NULL_HANDLE;
++	size_t non_drm_count = 0;
++	const char *allow_non_drm = getenv("WLR_VK_ALLOW_NON_DRM_DEVICE");
++	bool allow_non_drm_phdev = allow_non_drm && strcmp(allow_non_drm, "1") == 0;
++
+ 	struct stat drm_stat = {0};
+ 	if (drm_fd >= 0 && fstat(drm_fd, &drm_stat) != 0) {
+ 		wlr_log_errno(WLR_ERROR, "fstat failed");
+@@ -347,6 +358,10 @@
+ 		bool found;
+ 		if (drm_fd >= 0) {
+ 			if (!has_drm_props) {
++				if (phdev_props.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU) {
++					non_drm_phdev = phdev;
++					non_drm_count++;
++				}
+ 				wlr_log(WLR_DEBUG, "  Ignoring physical device \"%s\": "
+ 					"VK_EXT_physical_device_drm not supported",
+ 					phdev_props.deviceName);
+@@ -367,12 +382,27 @@
+ 		}
+ 	}
+ 
++	if (allow_non_drm_phdev && non_drm_count == 1) {
++		wlr_log(WLR_INFO, "Using the only non-DRM Vulkan physical device "
++			"(WLR_VK_ALLOW_NON_DRM_DEVICE)");
++		return non_drm_phdev;
++	}
++
+ 	return VK_NULL_HANDLE;
+ }
+ 
+ int vulkan_open_phdev_drm_fd(VkPhysicalDevice phdev) {
+-	// vulkan_find_drm_phdev() already checks that VK_EXT_physical_device_drm
+-	// is supported
++	// vulkan_find_drm_phdev() only returns a device without
++	// VK_EXT_physical_device_drm when the caller opted in; it has no node.
++	uint32_t extc = 0;
++	if (vkEnumerateDeviceExtensionProperties(phdev, NULL, &extc, NULL) != VK_SUCCESS) {
++		return -1;
++	}
++	VkExtensionProperties ext_props[extc + 1];
++	if (vkEnumerateDeviceExtensionProperties(phdev, NULL, &extc, ext_props) != VK_SUCCESS ||
++			!check_extension(ext_props, extc, VK_EXT_PHYSICAL_DEVICE_DRM_EXTENSION_NAME)) {
++		return -1;
++	}
+ 	VkPhysicalDeviceDrmPropertiesEXT drm_props = {
+ 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRM_PROPERTIES_EXT,
+ 	};
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -2618,6 +2618,11 @@
+ 	// Do not use the drm_fd that was passed in: we should prefer the render
+ 	// node even if a primary node was provided
+ 	dev->drm_fd = vulkan_open_phdev_drm_fd(phdev);
++	if (dev->drm_fd < 0 && drm_fd >= 0) {
++		// A non-DRM device (see vulkan_find_drm_phdev) has no node of its
++		// own: allocate and share buffers on the display device instead.
++		dev->drm_fd = fcntl(drm_fd, F_DUPFD_CLOEXEC, 0);
++	}
+ 
+ 	return vulkan_renderer_create_for_device(dev);
+ 
