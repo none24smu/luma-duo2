@@ -82,6 +82,11 @@ qcom_dload_mode.download_mode=0 msm_poweroff.download_mode=0"
     # postmarketOS's initramfs: find pmOS_root (by label, inside userdata),
     # mount it as Luma's boot.toml does, and hand over to its /sbin/init.
     [ "$LUMA" -eq 1 ] && CMDLINE="$CMDLINE pmos_rootfsopts=defaults rootwait init=/init"
+    # The SDE's writeback connector, Virtual-1, is not a display. Left
+    # connected, compositors enable it beside the panels -- phoc at 0,0 --
+    # and windows open on it where no panel shows them. ":d" makes the DRM
+    # probe helper report it disconnected to every compositor.
+    CMDLINE="$CMDLINE video=Virtual-1:d"
 else
     CMDLINE_MODE=replace
     CMDLINE="console=ttyGS0,115200n8 reboot_mode.panic_mode=bootloader panic=-1 \
