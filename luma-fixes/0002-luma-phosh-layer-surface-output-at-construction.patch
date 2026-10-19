@@ -1,5 +1,5 @@
 diff --git a/packaging/rpm/luma-phosh.spec b/packaging/rpm/luma-phosh.spec
-index 1ce5b8c..c07b8a5 100644
+index 1ce5b8c..1754df4 100644
 --- a/packaging/rpm/luma-phosh.spec
 +++ b/packaging/rpm/luma-phosh.spec
 @@ -2,7 +2,7 @@
@@ -7,7 +7,7 @@ index 1ce5b8c..c07b8a5 100644
  Name:           luma-phosh
  Version:        0.55.0
 -Release:        1.luma.46%{?dist}
-+Release:        1.luma.46.1.duo2%{?dist}
++Release:        1.luma.46.2.duo2%{?dist}
  Summary:        Luma native handheld renderer based on Phosh
  License:        GPL-3.0-or-later
  URL:            https://gitlab.gnome.org/World/Phosh/phosh
@@ -21,7 +21,7 @@ index 1ce5b8c..c07b8a5 100644
  
 diff --git a/patches/phosh/0019-layer-surface-output-at-construction.patch b/patches/phosh/0019-layer-surface-output-at-construction.patch
 new file mode 100644
-index 0000000..be6dcb7
+index 0000000..0bb6c23
 --- /dev/null
 +++ b/patches/phosh/0019-layer-surface-output-at-construction.patch
 @@ -0,0 +1,26 @@
@@ -37,8 +37,8 @@ index 0000000..be6dcb7
 +panel, and stacking it below the lock screen then fails with "Layer surface
 +not on same output", a protocol error that ends the session.
 +
-+Make the property construct-only, as every caller already treats it, so it
-+is set before constructed() runs.
++Make it a construct property, so it is set before constructed() runs. Not
++construct-only: PhoshOsdWindow and others set it again later.
 +
 +--- a/src/layersurface.c
 ++++ b/src/layersurface.c
@@ -47,7 +47,7 @@ index 0000000..be6dcb7
 +       "Wayland Output",
 +       "The wl_output associated with this surface",
 +-      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-++      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+++      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
 + 
 +   props[PHOSH_LAYER_SURFACE_PROP_ANCHOR] =
 +     g_param_spec_uint (
