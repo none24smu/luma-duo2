@@ -17,7 +17,8 @@
 # each result is installed into the builder for the packages that follow.
 #
 # Usage: duo2-luma-builder.sh BUILDER [BUILDER ...]
-#   BUILDER is a script name under luma/scripts/packages/, e.g. build-luma-phoc.sh
+#   BUILDER is a script name under luma/scripts/packages/, e.g. build-luma-phoc.sh,
+#   or a path under luma/scripts/, e.g. mobile/build-luma-keyboard-fp6.sh
 #   duo2-luma-builder.sh --shell      interactive shell in the builder
 
 set -euo pipefail
@@ -87,26 +88,40 @@ done
 # tools/rpmbuild-jobs/rpmbuild) in every builder container that exists.
 install_jobs_shim() {
     local c
-    for c in "$NAME" luma-rpm-builder-f44 luma-rpm-builder-f44-x86; do
+    for c in "$NAME" "${LUMA_DUO2_HOST_NAME:-luma-duo2-host}" luma-rpm-builder-f44 luma-rpm-builder-f44-x86; do
         docker container inspect "$c" >/dev/null 2>&1 || continue
         docker cp "$LUMA_DUO2_ROOT/tools/rpmbuild-jobs/rpmbuild" "$c:/usr/local/bin/rpmbuild" >/dev/null
+        # The containers build as root in a checkout the workstation user
+        # owns; builders that ask git about the tree need it trusted.
+        docker exec "$c" sh -c "command -v git >/dev/null && git config --global --get-all safe.directory | grep -qx '*' || git config --global --add safe.directory '*'" >/dev/null 2>&1 || true
     done
 }
 install_jobs_shim
 mkdir -p "$LOGS"
 
 for builder in "$@"; do
-    script="/luma/scripts/packages/$builder"
-    [ -f "$LUMA/scripts/packages/$builder" ] || die "no $builder in Luma's scripts/packages"
+    # "name.sh@x86_64" or "@aarch64" forces the target architecture.
+    force_arch=""
+    case "$builder" in *@*) force_arch="${builder#*@}"; builder="${builder%@*}" ;; esac
+    case "$builder" in */*) rel="$builder" ;; *) rel="packages/$builder" ;; esac
+    script="/luma/scripts/$rel"
+    [ -f "$LUMA/scripts/$rel" ] || die "no $rel in Luma's scripts"
     install_jobs_shim
     log="$LOGS/${builder%.sh}.log"
     # The spec(s) a builder installs into SPECS/ -- their BuildRequires are
     # what dnf builddep needs to satisfy before rpmbuild can run.
     mapfile -t specs < <(grep -oE 'packaging/rpm/[A-Za-z0-9._+-]+\.spec' \
-        "$LUMA/scripts/packages/$builder" | sort -u)
+        "$LUMA/scripts/$rel" | sort -u)
     info "$builder: ${#specs[@]} spec(s): ${specs[*]##*/}  (log: ${log#$LUMA_DUO2_ROOT/})"
     start=$SECONDS
-    if grep -q 'run-in-rpm-builder' "$LUMA/scripts/packages/$builder"; then
+    stamp="$(mktemp)"   # RPMs newer than this were produced by this build
+    # The builder, plus a shared builder it hands off to (build-luma-terminal.sh
+    # execs build-luma-python-app.sh), decides how it runs.
+    chain=("$LUMA/scripts/$rel")
+    for next in $(grep -oE 'build-[a-z0-9-]+\.sh' "$LUMA/scripts/$rel" | sort -u); do
+        [ -f "$LUMA/scripts/packages/$next" ] && chain+=("$LUMA/scripts/packages/$next")
+    done
+    if grep -q 'run-in-rpm-builder' "${chain[@]}"; then
         # Wraps itself in Luma's pinned builder container through podman,
         # from a Fedora x86_64 host (uname, rpm2cpio, dnf5). Run it in the
         # Fedora x86_64 "host" container, with the podman->docker shim first
@@ -118,16 +133,27 @@ for builder in "$@"; do
         # x86_64 one -- natively here, no emulation. They need separate
         # container names: Luma's wrapper rightly refuses to reuse a builder
         # made from a different image.
-        if grep -q 'LUMA_TARGET_ARCHITECTURE' "$LUMA/scripts/packages/$builder"; then
+        # aarch64 for builders that can target it, unless forced otherwise or
+        # the builder insists on an x86_64 machine (architecture-independent
+        # packages Luma builds against its x86_64 developer platform).
+        want=aarch64
+        grep -q 'LUMA_TARGET_ARCHITECTURE' "${chain[@]}" || want=x86_64
+        if grep -qE 'uname -m\)" = x86_64 \]' "$LUMA/scripts/$rel" &&
+                ! grep -q 'LUMA_TARGET_ARCHITECTURE' "$LUMA/scripts/$rel"; then
+            want=x86_64
+        fi
+        [ -n "$force_arch" ] && want="$force_arch"
+        if [ "$want" = aarch64 ]; then
             target_env=(LUMA_TARGET_ARCHITECTURE=aarch64 LUMA_RPM_BUILDER_NAME=luma-rpm-builder-f44)
         else
             target_env=(LUMA_RPM_BUILDER_NAME=luma-rpm-builder-f44-x86)
-            mode="wrapped noarch (Fedora x86_64 host -> Luma's pinned x86_64 container)"
+            grep -q 'LUMA_TARGET_ARCHITECTURE' "${chain[@]}" && target_env+=(LUMA_TARGET_ARCHITECTURE=x86_64)
+            mode="wrapped x86_64 (Fedora x86_64 host -> Luma's pinned x86_64 container)"
         fi
         run() { docker exec -w "$LUMA" "$HOSTNAME_C" env \
                     PATH="$LUMA_DUO2_ROOT/tools/podman-docker:/usr/local/bin:/usr/bin:/bin" \
                     "${target_env[@]}" \
-                    bash "$LUMA/scripts/packages/$builder"; }
+                    bash "$LUMA/scripts/$rel"; }
     else
         # Expects to run on the aarch64 builder itself.
         mode="native (in $NAME)"
@@ -144,7 +170,7 @@ for builder in "$@"; do
         grep -qE "install: cannot stat '[^']*/RPMS/aarch64/[^']+\.rpm'" "$log" &&
             "$LUMA_DUO2_ROOT/scripts/duo2-collect-luma-rpms.sh" "${builder_pkg:-}" >> "$log" 2>&1
     }
-    builder_pkg="$(grep -oE 'build/packages/[a-z0-9-]+' "$LUMA/scripts/packages/$builder" | head -1)"
+    builder_pkg="$(grep -oE 'build/packages/[a-z0-9-]+' "$LUMA/scripts/$rel" | head -1 || true)"
     builder_pkg="${builder_pkg#build/packages/}"
     if run > "$log" 2>&1 || stale_pin; then
         info "$builder: built in $(( (SECONDS - start) / 60 )) min"
@@ -157,17 +183,43 @@ for builder in "$@"; do
         mapfile -t rpms < <(grep -oE '^[0-9a-f]{64}  [^ ]*build/packages/[^ ]+\.rpm$' \
             "$log" | awk '{print $2}' | grep -v '\.src\.rpm$' \
             | sed "s|^$LUMA/|/luma/|" | sort -u || true)
-        # Some builders print no checksums; fall back to the package's
-        # stable RPMS/ directory -- RPMS/ or <arch>/RPMS/ -- never its work/ tree.
-        if [ ${#rpms[@]} -eq 0 ] && [ -n "${builder_pkg:-}" ]; then
-            mapfile -t rpms < <(find "$LUMA/build/packages/$builder_pkg" -path '*/work.*' -prune \
-                -o -path '*/RPMS/*' -name '*.rpm' ! -name '*-debug*' -print 2>/dev/null \
-                | sed "s|^$LUMA/|/luma/|" | sort)
-        fi
+        # Some builders print no checksums, or print their dependencies'
+        # too: take the RPMs this build actually wrote into a stable RPMS/
+        # (or <arch>/RPMS/, or <arch>/) directory -- never a work tree.
+        mapfile -t produced < <(find "$LUMA/build/packages" -path '*work*' -prune \
+            -o -name '*.rpm' ! -name '*.src.rpm' ! -name '*-debug*' -newer "$stamp" -print 2>/dev/null \
+            | sed "s|^$LUMA/|/luma/|" | sort)
+        [ ${#produced[@]} -gt 0 ] && rpms=("${produced[@]}")
+        rm -f "$stamp"
         for r in "${rpms[@]}"; do printf '    %s\n' "${r#/luma/}"; done
-        if [ ${#rpms[@]} -gt 0 ]; then
-            docker exec "$NAME" dnf -y -q install --allowerasing "${rpms[@]}" >> "$log" 2>&1 \
+        # Later builds expect earlier results installed in their builder:
+        # aarch64 and noarch RPMs in the arm64 one, x86_64 and noarch ones in
+        # Luma's x86_64 container (at /build there rather than /luma/build).
+        arm=() x86=()
+        declare -A seen_rpm=()
+        for r in "${rpms[@]}"; do
+            # One copy of each package: a noarch RPM can be listed from both
+            # an aarch64 and an x86_64 build directory.
+            [ -n "${seen_rpm[${r##*/}]:-}" ] && continue
+            seen_rpm[${r##*/}]=1
+            case "$r" in
+                *.aarch64.rpm) arm+=("$r") ;;
+                *.x86_64.rpm) x86+=("${r/\/luma\/build\//\/build\/}") ;;
+                *.noarch.rpm) arm+=("$r"); x86+=("${r/\/luma\/build\//\/build\/}") ;;
+            esac
+        done
+        if [ ${#arm[@]} -gt 0 ]; then
+            docker exec "$NAME" dnf -y -q install --allowerasing "${arm[@]}" >> "$log" 2>&1 \
                 || warn "$builder: could not install its RPMs into the builder"
+            if docker container inspect luma-rpm-builder-f44 >/dev/null 2>&1; then
+                docker exec luma-rpm-builder-f44 dnf5 -y -q install --allowerasing \
+                    "${arm[@]/\/luma\/build\//\/build\/}" >> "$log" 2>&1 \
+                    || warn "$builder: could not install its RPMs into the arm64 builder"
+            fi
+        fi
+        if [ ${#x86[@]} -gt 0 ] && docker container inspect luma-rpm-builder-f44-x86 >/dev/null 2>&1; then
+            docker exec luma-rpm-builder-f44-x86 dnf5 -y -q install --allowerasing "${x86[@]}" >> "$log" 2>&1 \
+                || warn "$builder: could not install its RPMs into the x86_64 builder"
         fi
     else
         warn "$builder: FAILED after $(( (SECONDS - start) / 60 )) min -- tail of $log:"
