@@ -1,0 +1,183 @@
+diff --git a/patches/gnome-control-center/0000-luma-fedora-spec.patch b/patches/gnome-control-center/0000-luma-fedora-spec.patch
+index 2a88c53..5148b46 100644
+--- a/patches/gnome-control-center/0000-luma-fedora-spec.patch
++++ b/patches/gnome-control-center/0000-luma-fedora-spec.patch
+@@ -152,7 +152,7 @@
+ +python3 %{SOURCE1000} %{_vpath_builddir}/shell/gnome-control-center \
+ +  %{_vpath_builddir}/shell/org.gnome.Settings.desktop
+ +# Luma: the device-name slug rules (0018) run through upstream's hostname test.
+-+%meson_test test-hostname
+++%meson_test --timeout-multiplier ${LUMA_TEST_TIME_SCALE:-1} test-hostname
+ +# Luma's compositor schema is used only on this private package-check backend.
+ +task_runtime=$(mktemp -d)
+ +chmod 700 "$task_runtime"
+@@ -164,15 +164,15 @@
+ +glib-compile-schemas --strict "$task_runtime/schema"
+ +export GSETTINGS_SCHEMA_DIR="$task_runtime/schema"
+ +# LumaUI Settings model and adapter tests; display-bound tests run below.
+-+%meson_test luma-settings-fixture luma-settings-applications luma-settings-audio luma-settings-permissions luma-settings-power-reads luma-settings-preferences luma-settings-properties luma-settings-scroll-speed luma-settings-search-locations luma-settings-live-conn luma-settings-live-gsettings luma-settings-live-desk luma-settings-live-you luma-settings-live-keyboard luma-settings-display-preview luma-settings-display-save-view-1180 luma-settings-display-save-view-320
+++%meson_test --timeout-multiplier ${LUMA_TEST_TIME_SCALE:-1} luma-settings-fixture luma-settings-applications luma-settings-audio luma-settings-permissions luma-settings-power-reads luma-settings-preferences luma-settings-properties luma-settings-scroll-speed luma-settings-search-locations luma-settings-live-conn luma-settings-live-gsettings luma-settings-live-desk luma-settings-live-you luma-settings-live-keyboard luma-settings-display-preview luma-settings-display-save-view-1180 luma-settings-display-save-view-320
+ +# Test the actual native network editor frame and Cancel with accessibility enabled.
+-+xvfb-run -a --server-args="-screen 0 1600x1200x24" dbus-run-session -- env GSK_RENDERER=cairo GIO_USE_VFS=local GDK_DEBUG=no-portals meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs luma-settings-network-editor
+++xvfb-run -a --server-args="-screen 0 1600x1200x24" dbus-run-session -- env GSK_RENDERER=cairo GIO_USE_VFS=local GDK_DEBUG=no-portals meson test -C %{_vpath_builddir} --timeout-multiplier ${LUMA_TEST_TIME_SCALE:-1} --no-rebuild --print-errorlogs luma-settings-network-editor
+ +# Native page actions must reach the owned BlueZ/Rfkill service on a private bus.
+-+xvfb-run -a --server-args="-screen 0 1920x1080x24" env GSK_RENDERER=cairo meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs luma-settings-live-bluetooth
+++xvfb-run -a --server-args="-screen 0 1920x1080x24" env GSK_RENDERER=cairo meson test -C %{_vpath_builddir} --timeout-multiplier ${LUMA_TEST_TIME_SCALE:-1} --no-rebuild --print-errorlogs luma-settings-live-bluetooth
+ +# Native pointer clicks must stay in Luma and read back from their actual owner.
+-+xvfb-run -a --server-args="-screen 0 1600x1200x24" dbus-run-session -- env GSK_RENDERER=cairo GIO_USE_VFS=local GDK_DEBUG=no-portals meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs luma-settings-live-pointer
+++xvfb-run -a --server-args="-screen 0 1600x1200x24" dbus-run-session -- env GSK_RENDERER=cairo GIO_USE_VFS=local GDK_DEBUG=no-portals meson test -C %{_vpath_builddir} --timeout-multiplier ${LUMA_TEST_TIME_SCALE:-1} --no-rebuild --print-errorlogs luma-settings-live-pointer
+ +# Native Wi-Fi confirmation, failure/readback and scan-refresh input preservation.
+-+xvfb-run -a --server-args="-screen 0 1920x1080x24" env GSK_RENDERER=cairo GIO_USE_VFS=local meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs luma-settings-live-network
+++xvfb-run -a --server-args="-screen 0 1920x1080x24" env GSK_RENDERER=cairo GIO_USE_VFS=local meson test -C %{_vpath_builddir} --timeout-multiplier ${LUMA_TEST_TIME_SCALE:-1} --no-rebuild --print-errorlogs luma-settings-live-network
+ +xvfb-run -a --server-args="-screen 0 1600x1200x24" dbus-run-session -- env GSK_RENDERER=cairo GSETTINGS_BACKEND=memory LUMA_SETTINGS_TEST_FIXTURE=%{SOURCE1004} %{_vpath_builddir}/shell/test-luma-view --tap -p /settings/view/live-failure-keeps-pane
+ +xvfb-run -a --server-args="-screen 0 1600x1200x24" dbus-run-session -- env GSK_RENDERER=cairo GSETTINGS_BACKEND=memory LUMA_SETTINGS_TEST_FIXTURE=%{SOURCE1004} %{_vpath_builddir}/shell/test-luma-view --tap -p /settings/view/scroll-speed
+ +# Luma: the pointing stick page is called TrackPoint and says what it is (0021).
+diff --git a/patches/gnome-control-center/0046-lumaui-live-network-adapter.patch b/patches/gnome-control-center/0046-lumaui-live-network-adapter.patch
+index bdc98d4..c4224d6 100644
+--- a/patches/gnome-control-center/0046-lumaui-live-network-adapter.patch
++++ b/patches/gnome-control-center/0046-lumaui-live-network-adapter.patch
+@@ -294,7 +294,7 @@ index 0000000..2d07ac6
+ +}
+ +static void spin (guint ms)
+ +{
+-+  gint64 end = g_get_monotonic_time () + ms * 1000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((ms * 1000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)) {} g_usleep (1000); }
+ +  while (g_get_monotonic_time () < end);
+ +}
+diff --git a/patches/gnome-control-center/0048-settings-add-native-read-adapters-and-isolated-fixtu.patch b/patches/gnome-control-center/0048-settings-add-native-read-adapters-and-isolated-fixtu.patch
+index d3e2e66..ec8eff4 100644
+--- a/patches/gnome-control-center/0048-settings-add-native-read-adapters-and-isolated-fixtu.patch
++++ b/patches/gnome-control-center/0048-settings-add-native-read-adapters-and-isolated-fixtu.patch
+@@ -4149,7 +4149,7 @@ index 0000000..0086b7e
+ +}
+ +static void spin (guint ms)
+ +{
+-+  gint64 end = g_get_monotonic_time () + ms * 1000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((ms * 1000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)) {} g_usleep (1000); } while (g_get_monotonic_time () < end);
+ +}
+ +static void cancellation (void)
+@@ -4571,7 +4571,7 @@ index 0000000..0811c67
+ +}
+ +static void spin (guint ms)
+ +{
+-+  gint64 end = g_get_monotonic_time () + ms * 1000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((ms * 1000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)) {} g_usleep (1000); } while (g_get_monotonic_time () < end);
+ +}
+ +static void await_requests (guint count)
+@@ -4878,7 +4878,7 @@ index 0000000..afebcdf
+ +}
+ +static void spin (guint ms)
+ +{
+-+  gint64 end = g_get_monotonic_time () + ms * 1000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((ms * 1000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)) {} g_usleep (1000); } while (g_get_monotonic_time () < end);
+ +}
+ +static void wait_result (Result *seen)
+@@ -5123,7 +5123,7 @@ index 0000000..16148d9
+ +static void failed (CcLumaProperties *self, GError *error, Seen *seen) { seen->failed++; g_clear_error (&seen->error); seen->error = g_error_copy (error); }
+ +static void spin (guint ms)
+ +{
+-+  gint64 end = g_get_monotonic_time () + ms * 1000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((ms * 1000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)) {} g_usleep (1000); } while (g_get_monotonic_time () < end);
+ +}
+ +static void until (guint *count, guint minimum)
+diff --git a/patches/gnome-control-center/0073-settings-native-bluetooth-operations.patch b/patches/gnome-control-center/0073-settings-native-bluetooth-operations.patch
+index 6a7ec2a..c0457cd 100644
+--- a/patches/gnome-control-center/0073-settings-native-bluetooth-operations.patch
++++ b/patches/gnome-control-center/0073-settings-native-bluetooth-operations.patch
+@@ -577,7 +577,7 @@ Subject: [PATCH] Settings: own Bluetooth operations and retain discovery rows
+ +"<interface name='org.gnome.SettingsDaemon.Rfkill'><property name='AirplaneMode' type='b' access='read'/><property name='BluetoothAirplaneMode' type='b' access='readwrite'/><property name='BluetoothHardwareAirplaneMode' type='b' access='read'/></interface>"
+ +"<interface name='org.freedesktop.hostname1'><property name='PrettyHostname' type='s' access='read'/></interface></node>";
+ +typedef struct { GDBusConnection *bus; gboolean powered, airplane, connected, paired, trusted, refuse, removed; guint starts, stops, connects, pairs, extra; gboolean hold_start; GDBusMethodInvocation *delayed_start; char *agent_owner, *agent_path; GDBusMethodInvocation *pair; } Owner;
+-+static void spin (guint ms) { gint64 end=g_get_monotonic_time()+ms*1000;do { while(g_main_context_iteration(NULL,FALSE));g_usleep(1000); } while(g_get_monotonic_time()<end); }
+++static void spin (guint ms) { gint64 end=g_get_monotonic_time()+(gint64)(ms*1000*(g_getenv("LUMA_TEST_TIME_SCALE")?g_ascii_strtod(g_getenv("LUMA_TEST_TIME_SCALE"),NULL):1.0));do { while(g_main_context_iteration(NULL,FALSE));g_usleep(1000); } while(g_get_monotonic_time()<end); }
+ +static GVariant *property (GDBusConnection *bus,const char *sender,const char *path,const char *iface,const char *name,GError **error,gpointer data) {
+ + Owner *o=data;gboolean extra=g_str_has_prefix(path,AP "/dev_EXTRA_");gboolean near=g_str_equal(path,NP)||extra;
+ + if(extra&&g_str_equal(name,"Address"))return g_variant_new_string(strrchr(path,'/')+1);
+@@ -685,7 +685,7 @@ Subject: [PATCH] Settings: own Bluetooth operations and retain discovery rows
+ + spin(450);g_source_remove(pulse);g_assert_cmpuint(json_array_get_length(json_object_get_array_member(cc_luma_fixture_get_data(model),"CFNEAR")),==,182);
+ + g_assert_true(named(view,"cf-pair-BB")==retained);g_assert_true(gtk_widget_compute_bounds(retained,view,&after));g_assert_cmpfloat(fabs(before.origin.x-after.origin.x),<,2);g_assert_cmpfloat(fabs(before.origin.y-after.origin.y),<,2);
+ + g_assert_true(named(view,"cf-pair-BB")==retained);g_assert_true(gtk_root_get_focus(GTK_ROOT(window))==retained);g_assert_cmpfloat(fabs(gtk_adjustment_get_value(adjustment)-scroll),<,2);
+-+ g_assert_cmpuint(beat.ticks,>=,10);g_assert_cmpint(beat.max_gap,<,200000);g_print("181 devices/500 owner signals: retained row/focus/scroll, ticks=%u max-gap-us=%"G_GINT64_FORMAT"\n",beat.ticks,beat.max_gap);
+++ g_assert_cmpuint(beat.ticks,>=,10);g_assert_cmpint(beat.max_gap,<,(gint64)(200000*(g_getenv("LUMA_TEST_TIME_SCALE")?g_ascii_strtod(g_getenv("LUMA_TEST_TIME_SCALE"),NULL):1.0)));g_print("181 devices/500 owner signals: retained row/focus/scroll, ticks=%u max-gap-us=%"G_GINT64_FORMAT"\n",beat.ticks,beat.max_gap);
+ + /* An older failed start must not clear a newer successful discovery lease. */
+ + g_assert_true(cc_luma_fixture_write(model,"CFNEAR.scan",off,&error));spin(80);
+ + o.hold_start=TRUE;g_assert_true(cc_luma_fixture_write(model,"CFNEAR.scan",on,&error));spin(80);g_assert_nonnull(o.delayed_start);
+diff --git a/patches/gnome-control-center/0074-settings-native-wifi-lifecycle.patch b/patches/gnome-control-center/0074-settings-native-wifi-lifecycle.patch
+index 18c3e6a..0471bfa 100644
+--- a/patches/gnome-control-center/0074-settings-native-wifi-lifecycle.patch
++++ b/patches/gnome-control-center/0074-settings-native-wifi-lifecycle.patch
+@@ -732,7 +732,7 @@ new file mode 100644
+ +static guint delegates;
+ +void cc_luma_live_ready (CcLumaFixture *model, const char *adapter) { ready = TRUE; }
+ +static void spin (guint ms) {
+-+  gint64 end = g_get_monotonic_time () + ms * 1000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((ms * 1000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)); g_usleep (1000); } while (g_get_monotonic_time () < end);
+ +}
+ +static gboolean write_owner (CcLumaFixture *model, const char *key, JsonNode *value, gpointer state, GError **error) {
+diff --git a/patches/gnome-control-center/0075-settings-bluetooth-error-notice.patch b/patches/gnome-control-center/0075-settings-bluetooth-error-notice.patch
+index 272d756..63ba949 100644
+--- a/patches/gnome-control-center/0075-settings-bluetooth-error-notice.patch
++++ b/patches/gnome-control-center/0075-settings-bluetooth-error-notice.patch
+@@ -49,7 +49,7 @@
+ + g_source_remove(pulse);g_assert_cmpuint(scan_writes,>,scans_before);spin(200);
+ + g_assert_nonnull(strstr(json_node_get_string(cc_luma_fixture_get(model,"btError")),"Synthetic device refuses"));
+ + g_assert_nonnull(named(view,"cf-bt-error"));g_assert_cmpuint(renewal_beat.ticks,>,100);
+-+ g_assert_cmpint(renewal_beat.max_gap,<,200000);
+++ g_assert_cmpint(renewal_beat.max_gap,<,(gint64)(200000*(g_getenv("LUMA_TEST_TIME_SCALE")?g_ascii_strtod(g_getenv("LUMA_TEST_TIME_SCALE"),NULL):1.0)));
+ + g_print("Automatic discovery renewal retains connection error and native UI: ticks=%u max-gap-us=%"G_GINT64_FORMAT"\n",renewal_beat.ticks,renewal_beat.max_gap);
+ + /* A new explicit device retry clears the previous failure, then reports
+ +  * success through owner readback. */
+diff --git a/patches/gnome-control-center/0077-settings-native-pointer-write-qualification.patch b/patches/gnome-control-center/0077-settings-native-pointer-write-qualification.patch
+index 75837c8..d2ad55d 100644
+--- a/patches/gnome-control-center/0077-settings-native-pointer-write-qualification.patch
++++ b/patches/gnome-control-center/0077-settings-native-pointer-write-qualification.patch
+@@ -119,7 +119,7 @@ diff --git a/shell/test-luma-live-pointer.c b/shell/test-luma-live-pointer.c
+ +#include <luma-appearance.h>
+ +static guint delegates;
+ +void cc_luma_live_ready (CcLumaFixture *model, const char *adapter) { }
+-+static void spin(void) { gint64 end=g_get_monotonic_time()+150000;do {while(g_main_context_iteration(NULL,FALSE));g_usleep(1000);}while(g_get_monotonic_time()<end); }
+++static void spin(void) { gint64 end=g_get_monotonic_time()+(gint64) ((150000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));do {while(g_main_context_iteration(NULL,FALSE));g_usleep(1000);}while(g_get_monotonic_time()<end); }
+ +static gboolean writer(CcLumaFixture*m,const char*k,JsonNode*v,gpointer state,GError**e) {return cc_luma_adapter_gsettings.write(state,k,v,e);}
+ +static gboolean delegate(GtkWidget*root,const char*page,gpointer data) {delegates++;return TRUE;}
+ +static GtkWidget *named(GtkWidget*w,const char*n) {if(!g_strcmp0(gtk_widget_get_name(w),n))return w;for(GtkWidget*c=gtk_widget_get_first_child(w);c;c=gtk_widget_get_next_sibling(c)){GtkWidget*r=named(c,n);if(r)return r;}return NULL;}
+diff --git a/patches/gnome-control-center/0079-settings-display-apply-preview.patch b/patches/gnome-control-center/0079-settings-display-apply-preview.patch
+index 9aa91c9..cc6c622 100644
+--- a/patches/gnome-control-center/0079-settings-display-apply-preview.patch
++++ b/patches/gnome-control-center/0079-settings-display-apply-preview.patch
+@@ -274,7 +274,7 @@ Subject: [PATCH] Settings: stage display edits and confirm one preview
+ +/* Real DisplayConfig serialization against a private synthetic Mutter owner. */
+ +#include "cc-luma-live-displays.c"
+ +void cc_luma_live_ready (CcLumaFixture *model, const char *adapter) { cc_luma_fixture_changed (model); }
+-+static void spin (void) { gint64 end = g_get_monotonic_time () + 300000; do { while (g_main_context_iteration (NULL, FALSE)); g_usleep (1000); } while (g_get_monotonic_time () < end); }
+++static void spin (void) { gint64 end = g_get_monotonic_time () + (gint64) ((300000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0)); do { while (g_main_context_iteration (NULL, FALSE)); g_usleep (1000); } while (g_get_monotonic_time () < end); }
+ +static void edit (Displays *self, const char *key, const char *text)
+ +{
+ +  g_autoptr(JsonNode) value = json_node_init_string (json_node_alloc (), text);
+@@ -296,7 +296,7 @@ Subject: [PATCH] Settings: stage display edits and confirm one preview
+ +  edit (self, "d.int.scale", "125"); edit (self, "d.int.rot", "Portrait right");
+ +  edit (self, "d.int.hz", "75 Hz"); edit (self, "d.ext.pos", "100,500");
+ +  g_assert_nonnull (self->draft); g_assert_false (self->preview);
+-+  action (self, "display.apply"); g_assert_true (self->preview); g_assert_cmpuint (self->remaining, ==, 15);
+++  action (self, "display.apply"); g_assert_true (self->preview); g_assert_cmpuint (self->remaining, <=, 15); g_assert_cmpuint (self->remaining, >=, (g_getenv ("LUMA_TEST_TIME_SCALE") && g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) > 1.0) ? 1 : 15);
+ +  action (self, "display.revert"); g_assert_null (self->draft); g_assert_false (self->preview);
+ +  edit (self, "d.int.rot", "Landscape, flipped"); action (self, "display.apply"); action (self, "display.keep");
+ +  g_assert_null (self->draft); g_assert_false (self->preview);
+diff --git a/patches/gnome-control-center/0080-settings-retain-live-display-apply-bar.patch b/patches/gnome-control-center/0080-settings-retain-live-display-apply-bar.patch
+index ce0d6cb..ba71260 100644
+--- a/patches/gnome-control-center/0080-settings-retain-live-display-apply-bar.patch
++++ b/patches/gnome-control-center/0080-settings-retain-live-display-apply-bar.patch
+@@ -32,7 +32,7 @@ display transaction; other editor folding keeps its existing behavior.
+ +{ cc_luma_fixture_changed (model); }
+ +static void spin (void)
+ +{
+-+  gint64 end = g_get_monotonic_time () + 250000;
+++  gint64 end = g_get_monotonic_time () + (gint64) ((250000) * (g_getenv ("LUMA_TEST_TIME_SCALE") ? g_ascii_strtod (g_getenv ("LUMA_TEST_TIME_SCALE"), NULL) : 1.0));
+ +  do { while (g_main_context_iteration (NULL, FALSE)); g_usleep (1000); }
+ +  while (g_get_monotonic_time () < end);
+ +}

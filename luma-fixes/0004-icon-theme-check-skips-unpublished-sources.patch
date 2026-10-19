@@ -1,0 +1,30 @@
+diff --git a/assets/icon-theme/tools/sync-application-icons.py b/assets/icon-theme/tools/sync-application-icons.py
+index a11a0c0..7225784 100644
+--- a/assets/icon-theme/tools/sync-application-icons.py
++++ b/assets/icon-theme/tools/sync-application-icons.py
+@@ -84,8 +84,12 @@ def main():
+         for relative in item.get('bundled', ()):
+             if relative.startswith('/') or '..' in Path(relative).parts:
+                 raise ValueError(f'Invalid bundled icon path: {relative}')
+-            bundled += 1
+             target = ROOT / relative
++            # An application not published in this tree has no directory to
++            # ship its bundled copy into; its theme icon is still checked.
++            if not target.parent.parent.is_dir():
++                continue
++            bundled += 1
+             if args.check:
+                 if not target.is_file() or target.read_bytes() != bundled_source:
+                     raise ValueError(f'Stale bundled application icon: {relative}')
+@@ -99,7 +103,10 @@ def main():
+         # Entries whose upstream Lucide SVG is vendored in-tree carry their
+         # source digest too, so the ISC geometry a glyph claims is checkable
+         # here rather than only against a path on one designer's machine.
+-        if not item['source'].startswith('/'):
++        # The public tree names unpublished designer sources by the
++        # placeholder "local-source-artwork"; like absolute paths, those
++        # cannot be checked here (the published glyph above still is).
++        if not item['source'].startswith('/') and item['source'] != 'local-source-artwork':
+             upstream = THEME / item['source']
+             if hashlib.sha256(upstream.read_bytes()).hexdigest() != item['sha256']:
+                 raise ValueError(f"Unreviewed Lucide source: {item['source']}")

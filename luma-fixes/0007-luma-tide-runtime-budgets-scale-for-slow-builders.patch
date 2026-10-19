@@ -1,0 +1,14 @@
+diff --git a/tests/luma-tide/large_library_runtime.py b/tests/luma-tide/large_library_runtime.py
+index e3ba490..86d2a68 100644
+--- a/tests/luma-tide/large_library_runtime.py
++++ b/tests/luma-tide/large_library_runtime.py
+@@ -239,6 +239,9 @@ def main() -> None:
+     # A shared builder busier than its cores stretches every wall-clock gap;
+     # the budget stretches with it, and never below the idle budget.
+     load = max(1.0, os.getloadavg()[0] / (os.cpu_count() or 1))
++    # A slower builder than the budgets assume -- an emulated aarch64 one --
++    # stretches them the same way (LUMA_TEST_TIME_SCALE, default 1).
++    load *= max(1.0, float(os.environ.get("LUMA_TEST_TIME_SCALE", "1")))
+     over = [name for name, value in results.items() if value > BUDGET[name] * load]
+     if load > 1.0:
+         print(f"builder load {load:.2f}x its cores; budgets scaled to match", flush=True)

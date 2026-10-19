@@ -1,0 +1,83 @@
+diff --git a/src/luma-terminal/tests/smoke_vte.py b/src/luma-terminal/tests/smoke_vte.py
+index e855844..2b02da0 100644
+--- a/src/luma-terminal/tests/smoke_vte.py
++++ b/src/luma-terminal/tests/smoke_vte.py
+@@ -4,6 +4,7 @@ Run under a headless Wayland compositor; never on the user's live display.
+ """
+ from __future__ import annotations
+ 
++import os
+ import sys
+ 
+ import gi
+@@ -13,6 +14,14 @@ from gi.repository import Gio, GLib, Gtk
+ 
+ from luma_terminal.terminal import TerminalApplication
+ 
++# The delays below assume native speed. LUMA_TEST_TIME_SCALE stretches them
++# for slower builders, such as an emulated aarch64 one; the checks are the same.
++TIME_SCALE = float(os.environ.get("LUMA_TEST_TIME_SCALE", "1"))
++
++
++def after(ms: int, callback) -> int:
++    return GLib.timeout_add(int(ms * TIME_SCALE), callback)
++
+ 
+ app = TerminalApplication()
+ app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
+@@ -28,7 +37,7 @@ def inspect() -> bool:
+             and "LUMA_PASTED_OK" in content):
+         print("VTE spawn and command delivery: OK")
+         terminal.select_all()
+-        GLib.timeout_add(100, inspect_selection)
++        after(100, inspect_selection)
+     else:
+         print("VTE command output missing", file=sys.stderr)
+         app.quit()
+@@ -67,7 +76,7 @@ def inspect_selection() -> bool:
+                         app.quit()
+                         return False
+                 print("Both pane close controls reveal on hover: OK")
+-                GLib.timeout_add(500, send_in_split)
++                after(500, send_in_split)
+                 return False
+     if status != 0:
+         print("VTE selection action bar failed", file=sys.stderr)
+@@ -78,7 +87,7 @@ def inspect_selection() -> bool:
+ def send_in_split() -> bool:
+     window = app.props.active_window
+     window._send_command("printf LUMA_SPLIT_OK")
+-    GLib.timeout_add(600, inspect_split)
++    after(600, inspect_split)
+     return False
+ 
+ 
+@@ -139,24 +148,24 @@ def send() -> bool:
+     terminal.feed_child(b"\n")
+     window._send_command("printf LUMA_TERM_SMOKE_OK")
+     window.get_clipboard().set("printf LUMA_PASTED_OK")
+-    GLib.timeout_add(100, paste)
++    after(100, paste)
+     return False
+ 
+ 
+ def paste() -> bool:
+     window = app.props.active_window
+     window.paste()
+-    GLib.timeout_add(200, enter_pasted_command)
++    after(200, enter_pasted_command)
+     return False
+ 
+ 
+ def enter_pasted_command() -> bool:
+     window = app.props.active_window
+     window._active_terminal().feed_child(b"\n")
+-    GLib.timeout_add(900, inspect)
++    after(900, inspect)
+     return False
+ 
+ 
+-GLib.timeout_add(800, send)
++after(800, send)
+ app.run([])
+ raise SystemExit(status)

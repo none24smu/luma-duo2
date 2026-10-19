@@ -1,0 +1,19 @@
+diff --git a/scripts/packages/build-luma-developer-platform.sh b/scripts/packages/build-luma-developer-platform.sh
+index d46e1f7..40b10fb 100755
+--- a/scripts/packages/build-luma-developer-platform.sh
++++ b/scripts/packages/build-luma-developer-platform.sh
+@@ -96,9 +96,12 @@ if [ "$toolkit_copied" -lt 2 ]; then
+     "$toolkit_copied" "$libadwaita_rpms" "$LIBADWAITA_NEVRA" >&2
+   exit 1
+ fi
+-if [ ! -f "$rpmbuild_dir/luma-toolkit/$LIBADWAITA_NEVRA.rpm" ]; then
++# The pinned NEVRA names the x86_64 build; the toolkit for this platform is
++# the same release built for $architecture.
++libadwaita_nevra="${LIBADWAITA_NEVRA%.x86_64}.$architecture"
++if [ ! -f "$rpmbuild_dir/luma-toolkit/$libadwaita_nevra.rpm" ]; then
+   printf 'error: %s is not among the built toolkit RPMs in %s\n' \
+-    "$LIBADWAITA_NEVRA" "$libadwaita_rpms" >&2
++    "$libadwaita_nevra" "$libadwaita_rpms" >&2
+   exit 1
+ fi
+ 
