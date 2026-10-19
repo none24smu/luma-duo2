@@ -1,0 +1,23 @@
+[Unit]
+Description=Luma Duo 2: touch through Microsoft's heat processor (duo2-touchd)
+Documentation=https://github.com/none24smu/luma-duo2/blob/main/docs/touch.md
+# The touchscreens must exist before a compositor starts, so that phoc maps
+# them to their panels from the beginning.
+Before=greetd.service
+ConditionPathExists=/opt/duo2-touch/duo2-touchd
+
+[Service]
+# duo2-touchd and the library it hosts are Android programs: run them with the
+# stock linker and runtime libraries assembled by duo2-touch-bundle.sh.
+Environment=LD_LIBRARY_PATH=/opt/duo2-touch/lib64
+# Keep the digitizer powered, as the stock service does on start.
+ExecStartPre=-/bin/sh -c 'echo on > /sys/bus/spi/devices/spi0.0/power/control'
+# The unit's factory two-panel alignment, from its own sfpd partition.
+ExecStartPre=-/usr/libexec/luma-duo2-touch-calibration /var/lib/duo2-touchd
+ExecStart=/opt/duo2-touch/linker64 /opt/duo2-touch/duo2-touchd --lib /opt/duo2-touch/lib64/libsurfacetouch_c1.so --state /var/lib/duo2-touchd
+StateDirectory=duo2-touchd
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

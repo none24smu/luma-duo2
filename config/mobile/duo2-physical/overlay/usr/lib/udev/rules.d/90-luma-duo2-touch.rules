@@ -1,0 +1,5 @@
+# Surface Duo 2: duo2-touchd's two touchscreens, one per panel, each tied to
+# its panel's display output. libinput reports WL_OUTPUT as the device's
+# output name, and phoc maps the touchscreen to that output.
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Surface Duo 2 Touchscreen Left", ENV{WL_OUTPUT}="DSI-1"
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Surface Duo 2 Touchscreen Right", ENV{WL_OUTPUT}="DSI-2"

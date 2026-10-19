@@ -34,6 +34,10 @@ mkdir -p "$OUT" "$BUILD/tools"; rm -f "$OUT"/*.img "$OUT"/*.sparse
 "${CROSS_COMPILE:-aarch64-linux-gnu-}gcc" -O2 -Wall -o "$BUILD/tools/duo2-kmstest" \
     "$LUMA_DUO2_ROOT/tools/duo2-kmstest.c"
 KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/Image"
+# Touch: duo2-touchd and the stock runtime it hosts (duo2-touch-bundle.sh),
+# assembled from the user's firmware; not part of any committed file.
+TOUCH="$BUILD/duo2-touch"
+[ -x "$TOUCH/duo2-touchd" ] || die "no $TOUCH/duo2-touchd -- run duo2-touch-bundle.sh"
 
 # The luma account's passcode, from the gitignored .duo2.local
 # (DUO2_LUMA_PASSCODE=), as Luma's FP6 assembler takes it: supplied by
@@ -49,6 +53,7 @@ docker run --rm --platform linux/amd64 -e LUMA_PASSWORD_HASH \
     -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
     -v "$INITRAMFS:/in/initramfs:ro" -v "$KERNEL:/in/Image:ro" -v "$OUT:/out" \
     -v "$BUILD/tools:/tools:ro" -v "$BUILD/ssh/duo2_ed25519.pub:/in/ssh.pub:ro" \
+    -v "$TOUCH:/touch:ro" \
     "$IMAGE" bash -euo pipefail -c '
 dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 
@@ -59,6 +64,12 @@ dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 cp -a --no-preserve=ownership /modules/lib/modules/. /rootfs/usr/lib/modules/
 chown root:root /rootfs
 usermod --root /rootfs --password "$LUMA_PASSWORD_HASH" luma
+# Touch runtime (see docs/touch.md); the unit comes with the Duo 2 overlay.
+rm -rf /rootfs/opt/duo2-touch
+cp -a --no-preserve=ownership /touch /rootfs/opt/duo2-touch
+[ -f /rootfs/usr/lib/systemd/system/luma-duo2-touchd.service ] && \
+    ln -sf /usr/lib/systemd/system/luma-duo2-touchd.service \
+        /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-touchd.service
 install -m 0755 /tools/duo2-kmstest /rootfs/usr/local/bin/duo2-kmstest
 # Bring-up: SELinux permissive, which Luma allows for experimental-tier
 # devices. Whether the Fedora policy loads on this Android kernel is untested,
