@@ -84,6 +84,34 @@ for fix in "$LUMA_DUO2_ROOT"/luma-fixes/*.patch; do
     info "applied luma-fixes/$(basename "$fix")"
 done
 
+# Install a build's RPMs into a builder container. Luma's own build wins
+# even where Fedora has since shipped a newer release (gtk4 4.22.4 Luma vs
+# 4.22.5 Fedora): later builds and tests expect Luma's. Luma keeps only the
+# runtime package of some (gtk4); the matching -devel from the build tree
+# comes along, or Fedora's -devel would pull Fedora's runtime back in.
+install_luma_rpms() {
+    local c=$1; shift
+    docker exec -i "$c" bash -s -- "$@" <<'INSTALL'
+set -u
+dnf=dnf5; command -v dnf5 >/dev/null || dnf=dnf
+rpms=("$@")
+for r in "$@"; do
+    q=$(rpm -qp --qf '%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}' "$r" 2>/dev/null) || continue
+    set -- $q
+    pkgdir=$(echo "$r" | sed -E 's|(/build/packages/[^/]+)/.*|\1|')
+    while IFS= read -r d; do rpms+=("$d"); done < <(find "$pkgdir" -path '*/rpmbuild/RPMS/*' \
+        -name "$1-devel-$2.rpm" 2>/dev/null | head -1)
+done
+$dnf -y -q install --allowerasing "${rpms[@]}" || exit 1
+older=()
+for r in "${rpms[@]}"; do
+    want=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$r" 2>/dev/null) || continue
+    rpm -q "$want" >/dev/null 2>&1 || older+=("$r")
+done
+[ ${#older[@]} -eq 0 ] || $dnf -y -q downgrade --allowerasing "${older[@]}"
+INSTALL
+}
+
 # Lift the per-build job caps some Luma builders put on rpmbuild (see
 # tools/rpmbuild-jobs/rpmbuild) in every builder container that exists.
 install_jobs_shim() {
@@ -209,16 +237,15 @@ for builder in "$@"; do
             esac
         done
         if [ ${#arm[@]} -gt 0 ]; then
-            docker exec "$NAME" dnf -y -q install --allowerasing "${arm[@]}" >> "$log" 2>&1 \
+            install_luma_rpms "$NAME" "${arm[@]}" >> "$log" 2>&1 \
                 || warn "$builder: could not install its RPMs into the builder"
             if docker container inspect luma-rpm-builder-f44 >/dev/null 2>&1; then
-                docker exec luma-rpm-builder-f44 dnf5 -y -q install --allowerasing \
-                    "${arm[@]/\/luma\/build\//\/build\/}" >> "$log" 2>&1 \
+                install_luma_rpms luma-rpm-builder-f44 "${arm[@]/\/luma\/build\//\/build\/}" >> "$log" 2>&1 \
                     || warn "$builder: could not install its RPMs into the arm64 builder"
             fi
         fi
         if [ ${#x86[@]} -gt 0 ] && docker container inspect luma-rpm-builder-f44-x86 >/dev/null 2>&1; then
-            docker exec luma-rpm-builder-f44-x86 dnf5 -y -q install --allowerasing "${x86[@]}" >> "$log" 2>&1 \
+            install_luma_rpms luma-rpm-builder-f44-x86 "${x86[@]}" >> "$log" 2>&1 \
                 || warn "$builder: could not install its RPMs into the x86_64 builder"
         fi
     else

@@ -116,6 +116,19 @@ done
 dnf install -y --installroot="$rootfs" --releasever=44 --use-host-config \
     --setopt=install_weak_deps=False --allowerasing "${koji_repo[@]}" \
     "${pkgs[@]}" "${luma_rpms[@]}"
+# The Luma builds win where Fedora has since shipped a newer release
+# (gtk4 4.22.4 with the Luma patches vs 4.22.5 from Fedora).
+older=()
+for r in "${luma_rpms[@]}"; do
+    want=$(rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}" "$r" 2>/dev/null) || continue
+    rpm --root="$rootfs" -q "$want" >/dev/null 2>&1 && continue
+    rpm --root="$rootfs" -q "$(rpm -qp --qf "%{NAME}" "$r")" >/dev/null 2>&1 && older+=("$r")
+done
+if [ ${#older[@]} -gt 0 ]; then
+    echo "Luma builds over newer Fedora releases: ${older[*]##*/}"
+    dnf downgrade -y --installroot="$rootfs" --releasever=44 --use-host-config \
+        --setopt=install_weak_deps=False --allowerasing "${koji_repo[@]}" "${older[@]}"
+fi
 dnf clean all --installroot="$rootfs" --releasever=44 --use-host-config
 
 # --- Session, settings and the Duo 2 overlay, as compose-fp6-rootfs.sh -----
