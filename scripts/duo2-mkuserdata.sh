@@ -35,14 +35,30 @@ mkdir -p "$OUT" "$BUILD/tools"; rm -f "$OUT"/*.img "$OUT"/*.sparse
     "$LUMA_DUO2_ROOT/tools/duo2-kmstest.c"
 KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/Image"
 
-docker run --rm --platform linux/amd64 -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
+# The luma account's passcode, from the gitignored .duo2.local
+# (DUO2_LUMA_PASSCODE=), as Luma's FP6 assembler takes it: supplied by
+# whoever builds the image, never a repository default. Only the hash goes
+# into the image.
+passcode="$(sed -n 's/^DUO2_LUMA_PASSCODE=//p' "$DUO2_LOCAL_CONFIG" 2>/dev/null | tail -1)"
+[ -n "$passcode" ] || die "no DUO2_LUMA_PASSCODE= in $DUO2_LOCAL_CONFIG"
+LUMA_PASSWORD_HASH="$(printf '%s' "$passcode" | openssl passwd -6 -stdin)"
+unset passcode
+export LUMA_PASSWORD_HASH
+
+docker run --rm --platform linux/amd64 -e LUMA_PASSWORD_HASH \
+    -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
     -v "$INITRAMFS:/in/initramfs:ro" -v "$KERNEL:/in/Image:ro" -v "$OUT:/out" \
     -v "$BUILD/tools:/tools:ro" -v "$BUILD/ssh/duo2_ed25519.pub:/in/ssh.pub:ro" \
     "$IMAGE" bash -euo pipefail -c '
 dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 
 # Kernel modules and the mounts the booted system expects.
-cp -a /modules/lib/modules/. /rootfs/usr/lib/modules/
+# Owned by root, not by whoever staged them: uid 1000 on the workstation is
+# the luma user on the phone. The rootfs directory itself was made on the
+# workstation too, and becomes the filesystem root.
+cp -a --no-preserve=ownership /modules/lib/modules/. /rootfs/usr/lib/modules/
+chown root:root /rootfs
+usermod --root /rootfs --password "$LUMA_PASSWORD_HASH" luma
 install -m 0755 /tools/duo2-kmstest /rootfs/usr/local/bin/duo2-kmstest
 # Bring-up: SELinux permissive, which Luma allows for experimental-tier
 # devices. Whether the Fedora policy loads on this Android kernel is untested,
