@@ -109,7 +109,11 @@ install -D -m 0644 /luma/config/desktop/dconf/db/luma.d/00-luma-desktop \
 install -D -m 0644 /luma/config/mobile/luma-shell-handheld.dconf \
     "$rootfs/etc/dconf/db/luma.d/90-luma-handheld"
 dconf compile "$rootfs/etc/dconf/db/luma" "$rootfs/etc/dconf/db/luma.d"
-cp -a --no-preserve=ownership /overlay/. "$rootfs/"
+# Files as the overlay has them, owned by root; directories that already
+# exist (/etc, /usr, ...) keep the owner and mode the rootfs gave them,
+tar -C /overlay -cf - . | tar -C "$rootfs" -xf - --no-same-owner --no-overwrite-dir
+# and none of it group- or world-writable, whatever the umask of the checkout.
+(cd /overlay && find . -mindepth 1 -print0) | (cd "$rootfs" && xargs -0 chmod go-w)
 
 # greetd owns the panels now; the bring-up Weston service is retired.
 rm -f "$rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-weston.service"

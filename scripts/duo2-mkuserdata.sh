@@ -70,17 +70,20 @@ dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 # the luma user on the phone. The rootfs directory itself was made on the
 # workstation too, and becomes the filesystem root.
 cp -a --no-preserve=ownership /modules/lib/modules/. /rootfs/usr/lib/modules/
+chmod -R go-w /rootfs/usr/lib/modules
 chown root:root /rootfs
 usermod --root /rootfs --password "$LUMA_PASSWORD_HASH" luma
 # Turnip-KGSL (docs/gpu.md); /etc/environment points phoc and Vulkan at it.
 rm -rf /rootfs/opt/mesa-kgsl
 cp -a --no-preserve=ownership /turnip /rootfs/opt/mesa-kgsl
+chmod -R go-w /rootfs/opt/mesa-kgsl
 # Adreno 660 firmware for KGSL.
 install -d /rootfs/usr/lib/firmware
 install -m 0644 /gpufw/a660_sqe.fw /gpufw/a660_gmu.bin /gpufw/a660_zap.* /rootfs/usr/lib/firmware/
 # Touch runtime (see docs/touch.md); the unit comes with the Duo 2 overlay.
 rm -rf /rootfs/opt/duo2-touch
 cp -a --no-preserve=ownership /touch /rootfs/opt/duo2-touch
+chmod -R go-w /rootfs/opt/duo2-touch
 [ -f /rootfs/usr/lib/systemd/system/luma-duo2-touchd.service ] && \
     ln -sf /usr/lib/systemd/system/luma-duo2-touchd.service \
         /rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-touchd.service
