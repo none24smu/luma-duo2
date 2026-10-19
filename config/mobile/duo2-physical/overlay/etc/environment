@@ -1,4 +1,6 @@
-# Surface Duo 2 bring-up: no GPU acceleration yet (Adreno 660 needs KGSL
-# support in Mesa plus its firmware), so Phoc composites with wlroots'
-# software renderer. Remove once hardware rendering works.
-WLR_RENDERER=pixman
+# Surface Duo 2: Phoc composites on the Adreno 660 -- Mesa Turnip on Qualcomm
+# KGSL, through wlroots' Vulkan renderer, which accepts a GPU without a DRM
+# node only when asked (docs/gpu.md).
+WLR_RENDERER=vulkan
+WLR_VK_ALLOW_NON_DRM_DEVICE=1
+VK_ICD_FILENAMES=/opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd.aarch64.json

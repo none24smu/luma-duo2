@@ -29,10 +29,13 @@ OUTDIR="$(cd "${LUMA_DUO2_ROOTFS_OUT:-$LUMA_DUO2_ROOT/../build/duo2-rootfs}" && 
 IMAGE="${LUMA_DUO2_FEDORA_IMAGE:-registry.fedoraproject.org/fedora:44}"
 OVERLAY="$LUMA_DUO2_ROOT/config/mobile/duo2-physical/overlay"
 OVERRIDES="$LUMA_DUO2_ROOT/config/mobile/duo2-ui-pin-overrides.txt"
+# Fedora packages rebuilt with Duo 2 patches (duo2-build-wlroots.sh).
+DUO2_RPMS="$(cd "$LUMA_DUO2_ROOT/.." && pwd)/build/wlroots/RPMS"
+ls "$DUO2_RPMS"/wlroots-[0-9]*.duo2.*.rpm >/dev/null || die "no Duo 2 wlroots in $DUO2_RPMS -- run duo2-build-wlroots.sh"
 [ -d "$OUTDIR/rootfs/etc" ] || die "no base rootfs -- run duo2-compose-base-rootfs.sh"
 
 docker run --rm --platform linux/arm64 -v "$LUMA:/luma:ro" -v "$OVERLAY:/overlay:ro" \
-    -v "$OVERRIDES:/overrides.txt:ro" \
+    -v "$OVERRIDES:/overrides.txt:ro" -v "$DUO2_RPMS:/duo2-rpms:ro" \
     -v "$OUTDIR:/out" "$IMAGE" bash -euo pipefail -c '
 rootfs=/out/rootfs
 koji=https://kojipkgs.fedoraproject.org/packages
@@ -87,6 +90,9 @@ fi
 mapfile -t luma_rpms < <(find /luma/build/packages -name "work.*" -prune -o -name "*.work.*" -prune \
     -o -name "*.rpm" ! -name "*.src.rpm" ! -name "*-debuginfo-*" ! -name "*-debugsource-*" \
     ! -name "*-devel-*" \( -name "*.aarch64.rpm" -o -name "*.noarch.rpm" \) -print 2>/dev/null | sort)
+# The Duo 2 rebuilds of Fedora packages, without their -devel parts.
+mapfile -t duo2_rpms < <(find /duo2-rpms -name "*.duo2.*.rpm" ! -name "*-devel-*" | sort)
+luma_rpms+=("${duo2_rpms[@]}")
 echo "Luma packages: ${#luma_rpms[@]}"
 printf "    %s\n" "${luma_rpms[@]##*/}"
 

@@ -38,6 +38,14 @@ KERNEL="$(cd "$(dirname "$KERNEL")" && pwd)/Image"
 # assembled from the user's firmware; not part of any committed file.
 TOUCH="$BUILD/duo2-touch"
 [ -x "$TOUCH/duo2-touchd" ] || die "no $TOUCH/duo2-touchd -- run duo2-touch-bundle.sh"
+# Adreno 660 firmware (SQE microcode, GMU, zap shader), which KGSL loads from
+# /lib/firmware, from the stock vendor image (docs/gpu.md).
+# Mesa Turnip with the KGSL backend, in its own prefix (duo2-build-turnip.sh).
+TURNIP="$BUILD/mesa-kgsl/opt/mesa-kgsl"
+[ -f "$TURNIP/lib64/libvulkan_freedreno.so" ] || die "no Turnip-KGSL in $TURNIP -- run duo2-build-turnip.sh"
+GPUFW="$BUILD/stock-vendor/firmware"
+ls "$GPUFW"/a660_sqe.fw "$GPUFW"/a660_gmu.bin "$GPUFW"/a660_zap.mdt >/dev/null || \
+    die "no Adreno 660 firmware in $GPUFW -- extract the stock vendor image"
 
 # The luma account's passcode, from the gitignored .duo2.local
 # (DUO2_LUMA_PASSCODE=), as Luma's FP6 assembler takes it: supplied by
@@ -53,7 +61,7 @@ docker run --rm --platform linux/amd64 -e LUMA_PASSWORD_HASH \
     -v "$ROOTFS:/rootfs" -v "$MODULES:/modules:ro" \
     -v "$INITRAMFS:/in/initramfs:ro" -v "$KERNEL:/in/Image:ro" -v "$OUT:/out" \
     -v "$BUILD/tools:/tools:ro" -v "$BUILD/ssh/duo2_ed25519.pub:/in/ssh.pub:ro" \
-    -v "$TOUCH:/touch:ro" \
+    -v "$TOUCH:/touch:ro" -v "$GPUFW:/gpufw:ro" -v "$TURNIP:/turnip:ro" \
     "$IMAGE" bash -euo pipefail -c '
 dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 
@@ -64,6 +72,12 @@ dnf -q install -y e2fsprogs util-linux android-tools >/dev/null
 cp -a --no-preserve=ownership /modules/lib/modules/. /rootfs/usr/lib/modules/
 chown root:root /rootfs
 usermod --root /rootfs --password "$LUMA_PASSWORD_HASH" luma
+# Turnip-KGSL (docs/gpu.md); /etc/environment points phoc and Vulkan at it.
+rm -rf /rootfs/opt/mesa-kgsl
+cp -a --no-preserve=ownership /turnip /rootfs/opt/mesa-kgsl
+# Adreno 660 firmware for KGSL.
+install -d /rootfs/usr/lib/firmware
+install -m 0644 /gpufw/a660_sqe.fw /gpufw/a660_gmu.bin /gpufw/a660_zap.* /rootfs/usr/lib/firmware/
 # Touch runtime (see docs/touch.md); the unit comes with the Duo 2 overlay.
 rm -rf /rootfs/opt/duo2-touch
 cp -a --no-preserve=ownership /touch /rootfs/opt/duo2-touch
