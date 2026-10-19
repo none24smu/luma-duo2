@@ -1,0 +1,85 @@
+diff --git a/config/mobile/phoc-source.env b/config/mobile/phoc-source.env
+index 83f49f2..a1b1cb1 100644
+--- a/config/mobile/phoc-source.env
++++ b/config/mobile/phoc-source.env
+@@ -1,7 +1,7 @@
+ # Pinned Phoc source for the persistent Luma Presence compositor.
+ LUMA_PHOC_VERSION=0.55.1
+-LUMA_PHOC_RELEASE=2.luma.7
+-LUMA_PHOC_AARCH64_NEVRA=phoc-0.55.1-2.luma.7.fc44.aarch64
++LUMA_PHOC_RELEASE=2.luma.7.1.duo2
++LUMA_PHOC_AARCH64_NEVRA=phoc-0.55.1-2.luma.7.1.duo2.fc44.aarch64
+ LUMA_PHOC_URL=https://gitlab.gnome.org/World/Phosh/phoc/-/archive/v0.55.1/phoc-v0.55.1.tar.gz
+ LUMA_PHOC_SHA256=97cffe56477614f65ba462f0c6075f758795382cb21f2faa5674d0533d007a7a
+ LUMA_PHOC_GVDB_COMMIT=4758f6fb7f889e074e13df3f914328f3eecb1fd3
+diff --git a/packaging/rpm/luma-phoc.spec b/packaging/rpm/luma-phoc.spec
+index 4bad6c7..40c40db 100644
+--- a/packaging/rpm/luma-phoc.spec
++++ b/packaging/rpm/luma-phoc.spec
+@@ -4,7 +4,7 @@
+ 
+ Name: phoc
+ Version: 0.55.1
+-Release: 2.luma.7%{?dist}
++Release: 2.luma.7.1.duo2%{?dist}
+ Summary: Display compositor designed for phones
+ License: GPL-3.0-or-later
+ URL: https://gitlab.gnome.org/World/Phosh/phoc
+@@ -17,6 +17,7 @@ Patch3: 0004-luma-presence-above-startup-shield.patch
+ Patch4: 0005-luma-trace-presence-handoff.patch
+ Patch5: 0006-luma-render-presence-after-shield-callback.patch
+ Patch6: 0007-luma-physical-drawer-settling.patch
++Patch7: 0008-map-touch-to-its-libinput-output.patch
+ 
+ BuildRequires: gcc
+ BuildRequires: meson
+diff --git a/patches/phoc/0008-map-touch-to-its-libinput-output.patch b/patches/phoc/0008-map-touch-to-its-libinput-output.patch
+new file mode 100644
+index 0000000..3ac5eb8
+--- /dev/null
++++ b/patches/phoc/0008-map-touch-to-its-libinput-output.patch
+@@ -0,0 +1,44 @@
++From: luma-duo2
++Subject: seat: map touchscreens to the output libinput names
++
++Touch devices are mapped to an output from GSettings (matched by EDID), else
++from wlr_touch.output_name, else to the built-in output. wlroots' libinput
++backend never fills in output_name, so a device whose udev rules assign it an
++output (WL_OUTPUT, which libinput reports as the device's output name) still
++lands on the built-in one.
++
++On the Surface Duo 2 that matters: it has one touchscreen per panel, and both
++panels report the same EDID, so neither GSettings nor the fallback can put
++each touchscreen on its own panel. Ask libinput when wlroots has no name.
++
++--- a/src/seat.c
+++++ b/src/seat.c
++@@ -476,11 +476,24 @@
++ 
++   touch = wlr_touch_from_input_device (wlr_device);
++ 
++-  if (!touch->output_name)
++-    return NULL;
+++  if (touch->output_name) {
+++    g_debug ("Looking up output %s", touch->output_name);
+++    return phoc_desktop_find_output_by_name (desktop, touch->output_name);
+++  }
++ 
++-  g_debug ("Looking up output %s", touch->output_name);
++-  return phoc_desktop_find_output_by_name (desktop, touch->output_name);
+++  /* wlroots' libinput backend does not fill in output_name, so ask libinput
+++   * for the output udev assigned the device (the WL_OUTPUT property). */
+++  if (wlr_input_device_is_libinput (wlr_device)) {
+++    struct libinput_device *libinput_device = wlr_libinput_get_device_handle (wlr_device);
+++    const char *output_name = libinput_device_get_output_name (libinput_device);
+++
+++    if (output_name) {
+++      g_debug ("Looking up output %s (WL_OUTPUT)", output_name);
+++      return phoc_desktop_find_output_by_name (desktop, output_name);
+++    }
+++  }
+++
+++  return NULL;
++ }
++ 
++ 
