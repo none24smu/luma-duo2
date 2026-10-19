@@ -40,8 +40,11 @@ share buffers on the display device's node.
 
 ## Not yet
 
-- OpenGL for applications: Fedora's Mesa tries Zink (GL on Vulkan) but only
-  sees its own Vulkan drivers; it needs Turnip-KGSL in the system ICD path.
+- OpenGL for applications: Zink (GL on Vulkan) matches its Vulkan device to the
+  DRM render node like wlroots did, and fails the same way. GTK 4 and
+  libadwaita applications avoid GL: `GSK_RENDERER=vulkan` renders them on
+  Turnip directly (60 fps, measured with `frameprobe.py`). GTK 3 (Phosh's own
+  shell) draws with cairo.
 - Implicit sync: KGSL has no dma-buf sync_file import/export, so wlroots
   falls back to blocking on the GPU.
 - `/dev/dma_heap` does not exist on this kernel; Turnip allocates from ION.

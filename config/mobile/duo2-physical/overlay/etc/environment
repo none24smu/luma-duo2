@@ -4,3 +4,6 @@
 WLR_RENDERER=vulkan
 WLR_VK_ALLOW_NON_DRM_DEVICE=1
 VK_ICD_FILENAMES=/opt/mesa-kgsl/share/vulkan/icd.d/freedreno_icd.aarch64.json
+# GTK 4 / libadwaita applications render with Vulkan on the same GPU (GL
+# through Zink cannot yet find a KGSL device).
+GSK_RENDERER=vulkan
