@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# rpmbuild with Luma's per-build job caps lifted, for the Duo 2 builders.
+# rpmbuild with Luma's per-build job caps lifted and test delays stretched,
+# for the emulated Duo 2 builders.
 #
 # Several of Luma's builder scripts pin parallelism on the rpmbuild command
 # line -- --define "_smp_build_ncpus 4", --define "_smp_mflags -j2" -- sized
@@ -11,6 +12,10 @@
 # given. Luma's scripts are not modified.
 
 jobs="${LUMA_DUO2_JOBS:-$(nproc)}"
+# Under emulation, %check suites with timed UI steps (luma-terminal's smoke
+# test) run several times slower than they assume; let them stretch their
+# delays (luma-fixes/0006). Native builds keep the default of 1.
+export LUMA_TEST_TIME_SCALE="${LUMA_TEST_TIME_SCALE:-8}"
 args=()
 for a in "$@"; do
     case "$a" in
