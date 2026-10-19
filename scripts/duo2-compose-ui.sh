@@ -96,6 +96,23 @@ luma_rpms+=("${duo2_rpms[@]}")
 echo "Luma packages: ${#luma_rpms[@]}"
 printf "    %s\n" "${luma_rpms[@]##*/}"
 
+# --- Luma platform, Mods and applications, as compose-fp6-rootfs.sh --------
+# Package names, not pins: those Luma builds come from the local RPMs above,
+# the rest from Fedora. A name neither provides yet is reported, not fatal.
+declare -A local_names=()
+for r in "${luma_rpms[@]}"; do local_names[$(rpm -qp --qf "%{NAME}" "$r" 2>/dev/null)]=1; done
+: > /out/missing-packages.txt
+for list in platform-packages mod-packages application-packages; do
+    while read -r name; do
+        [ -n "${local_names[$name]:-}" ] && continue
+        if dnf -q repoquery --available "$name" 2>/dev/null | grep -q .; then
+            pkgs+=("$name")
+        else
+            echo "$name ($list)" | tee -a /out/missing-packages.txt
+        fi
+    done < <(sed -e "/^[[:space:]]*#/d" -e "/^[[:space:]]*\$/d" "/luma/config/shared/$list.txt")
+done
+
 dnf install -y --installroot="$rootfs" --releasever=44 --use-host-config \
     --setopt=install_weak_deps=False --allowerasing "${koji_repo[@]}" \
     "${pkgs[@]}" "${luma_rpms[@]}"
@@ -115,13 +132,50 @@ tar -C /overlay -cf - . | tar -C "$rootfs" -xf - --no-same-owner --no-overwrite-
 # and none of it group- or world-writable, whatever the umask of the checkout.
 (cd /overlay && find . -mindepth 1 -print0) | (cd "$rootfs" && xargs -0 chmod go-w)
 
+# --- The rest of the handheld system, as compose-fp6-rootfs.sh ------------
+printf "handheld\n" > "$rootfs/etc/luma-device-class"
+install -D -m 0644 /luma/config/mobile/plymouthd.conf "$rootfs/etc/plymouth/plymouthd.conf"
+install -D -m 0644 /luma/config/mobile/environment.d/90-luma-handheld.conf \
+    "$rootfs/etc/environment.d/90-luma-handheld.conf"
+install -D -m 0644 /luma/config/mobile/systemd-user/luma-graphical-session.target \
+    "$rootfs/usr/lib/systemd/user/luma-graphical-session.target"
+# No writable RTC here either: keep the wall clock across boots on disk.
+fp6=/luma/config/mobile/fp6-physical/overlay/usr/lib/systemd/system
+for unit in luma-clock-save.service luma-clock-save.timer luma-clock-restore.service; do
+    install -D -m 0644 "$fp6/$unit" "$rootfs/usr/lib/systemd/system/$unit"
+done
+install -d -m 0755 "$rootfs/var/lib/luma"
+cat > "$rootfs/etc/luma-mobile-release" <<EOR
+LUMA_ROOTFS_CONTRACT=mobile-v1
+LUMA_ROOTFS_BASE=fedora-44-aarch64
+LUMA_HARDWARE_BACKEND=surface-duo2
+LUMA_KERNEL_CONTRACT=msm-5.4-qgki
+LUMA_UI_INCLUDED=1
+LUMA_PHYSICAL_DEVICE=true
+INSTALL_AUTHORIZED=false
+EOR
+grep -q "^luma-display:" "$rootfs/etc/group" || groupadd --root "$rootfs" --system luma-display
+usermod --root "$rootfs" --append --groups luma-display,audio,video luma
+install -d -m 0755 "$rootfs/var/lib/dbus"
+ln -sfn /etc/machine-id "$rootfs/var/lib/dbus/machine-id"
+systemd-hwdb --root="$rootfs" update
+journalctl --root="$rootfs" --update-catalog
+
 # greetd owns the panels now; the bring-up Weston service is retired.
 rm -f "$rootfs/etc/systemd/system/multi-user.target.wants/luma-duo2-weston.service"
-systemctl --root="$rootfs" enable greetd.service
+for unit in NetworkManager.service bluetooth.service chronyd.service greetd.service \
+        ModemManager.service sshd.service luma-clock-restore.service luma-clock-save.timer; do
+    [ -e "$rootfs/usr/lib/systemd/system/$unit" ] && systemctl --root="$rootfs" enable "$unit"
+done
+# Handheld policy (80-luma-handheld.preset, without its FP6 modem units).
+for unit in avahi-daemon.service avahi-daemon.socket waydroid-container.service; do
+    [ -e "$rootfs/usr/lib/systemd/system/$unit" ] && systemctl --root="$rootfs" disable "$unit" || true
+done
 systemctl --root="$rootfs" set-default graphical.target
 
 chmod 0644 "$rootfs/etc/passwd" "$rootfs/etc/group"
 chmod 0600 "$rootfs/etc/shadow" "$rootfs/etc/gshadow"
 rpm --root "$rootfs" -qa | sort > /out/packages-ui.txt
 echo "rootfs now $(du -sh "$rootfs" | cut -f1), $(wc -l < /out/packages-ui.txt) packages"
+[ -s /out/missing-packages.txt ] && echo "not yet available: $(tr "\n" " " < /out/missing-packages.txt)"
 '
